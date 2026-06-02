@@ -168,8 +168,13 @@
   #lowerThird {
     position: absolute;
     bottom: 60px;
-    left: 0; right: 0;
-    padding: 0 40px;
+    left: 0;
+    padding-left: 40px;
+    padding-right: 0;
+    right: auto;
+    width: auto;
+    max-width: calc(100% - 40px);
+    text-align: left;
   }
 
   #nameplate {
@@ -277,6 +282,42 @@
     letter-spacing: 0.15em;
     color: var(--gold);
     opacity: 0.7;
+  }
+
+  #btnOverlayId {
+    position: absolute;
+    top: 10px;
+    right: 108px;
+    z-index: 6;
+    pointer-events: auto;
+    cursor: pointer;
+    background: rgba(26, 26, 46, 0.55);
+    border: 1px solid rgba(184, 150, 62, 0.4);
+    color: var(--gold);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    padding: 3px 9px;
+    opacity: 0.75;
+    transition: opacity 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  #btnOverlayId:hover {
+    opacity: 1;
+    border-color: var(--gold);
+    color: var(--gold-bright);
+  }
+
+  #btnOverlayId.active {
+    opacity: 0.95;
+    border-color: rgba(184, 150, 62, 0.65);
+    color: var(--gold-bright);
+  }
+
+  #btnOverlayId:not(.active) {
+    opacity: 0.45;
+    color: var(--parchment-dim);
+    border-color: rgba(184, 150, 62, 0.25);
   }
 
   #liveTag {
@@ -729,6 +770,7 @@
 
       <div id="broadcastOverlay">
         <div id="liveTag"><span class="dot"></span>TRANSMISSION</div>
+        <button type="button" id="btnOverlayId" class="active" title="Toggle nameplate (ID)" aria-label="Toggle nameplate" aria-pressed="true">ID</button>
         <div id="tcDisplay">00:00:00:00</div>
         <img id="cornerBugImg" alt="Corner bug" style="display:none;position:absolute;top:10px;right:10px;max-width:84px;max-height:84px;opacity:0.9;filter:drop-shadow(0 0 10px rgba(0,0,0,0.6));">
         <div id="lowerThird">
@@ -1800,6 +1842,7 @@ glowSlider?.addEventListener('input', () => {
   const category = document.getElementById('broadcastCategory');
   const categoryCustom = document.getElementById('categoryCustom');
   const lowerThirdToggle = document.getElementById('toggleLowerThird');
+  const btnOverlayId = document.getElementById('btnOverlayId');
   const lowerThird = document.getElementById('lowerThird');
   const nameplate = document.getElementById('nameplate');
   const nameEl = document.querySelector('#nameplate .name');
@@ -1901,11 +1944,21 @@ glowSlider?.addEventListener('input', () => {
   applyCategoryDropdown(category?.value || 'world');
   syncPresetButtons();
 
+  function setLowerThirdVisible(visible) {
+    if (lowerThird) lowerThird.style.display = visible ? '' : 'none';
+    lowerThirdToggle?.classList.toggle('active', visible);
+    if (lowerThirdToggle) lowerThirdToggle.textContent = visible ? 'ON' : 'OFF';
+    btnOverlayId?.classList.toggle('active', visible);
+    btnOverlayId?.setAttribute('aria-pressed', visible ? 'true' : 'false');
+  }
+
   lowerThirdToggle?.addEventListener('click', () => {
-    const on = !lowerThirdToggle.classList.contains('active');
-    lowerThirdToggle.classList.toggle('active', on);
-    lowerThirdToggle.textContent = on ? 'ON' : 'OFF';
-    if (lowerThird) lowerThird.style.display = on ? '' : 'none';
+    setLowerThirdVisible(!lowerThirdToggle.classList.contains('active'));
+  });
+
+  btnOverlayId?.addEventListener('click', () => {
+    const visible = lowerThird?.style.display !== 'none';
+    setLowerThirdVisible(!visible);
   });
 
   headlineInput?.addEventListener('input', () => {
