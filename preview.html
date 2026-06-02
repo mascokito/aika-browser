@@ -20,6 +20,8 @@
     --parchment:     #E8E4DC;
     --parchment-dim: #A89F93;
     --red-alert:     #8B2020;
+    --transport-h:   56px;
+    --sidebar-w:     280px;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -38,7 +40,7 @@
     min-height: 100vh;
     min-height: 100dvh;
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto 1fr var(--transport-h);
     grid-template-columns: 1fr;
     gap: 0;
   }
@@ -120,11 +122,6 @@
     aspect-ratio: 16 / 9;
   }
 
-  #canvasWrap.dragover {
-    outline: 2px dashed var(--viridian-glow);
-    outline-offset: -4px;
-  }
-
   canvas {
     position: absolute;
     top: 0; left: 0;
@@ -133,8 +130,6 @@
 
   #bgCanvas    { z-index: 0; }
   #charCanvas  { z-index: 1; }
-  #uiCanvas    { z-index: 2; }
-  #debugCanvas { z-index: 3; opacity: 0.7; pointer-events: none; }
 
   #uploadPrompt {
     position: absolute;
@@ -338,337 +333,220 @@
     animation: pulse 1s ease-in-out infinite;
   }
 
-  /* ── Dev controls: minimal bar + tabbed panel ─────────────────────────── */
-  #devDock {
+  /* ── Main canvas area + sidebar + float strip ─────────────────────────── */
+  #mainArea {
     position: relative;
-    background: transparent;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    min-height: 0;
+    overflow: hidden;
   }
 
-  #seekRow {
-    display: none;
-    width: 100%;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 12px;
-    background: var(--bg-mid);
-    border-top: 1px solid var(--viridian-dim);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    color: var(--viridian-glow);
-    box-sizing: border-box;
-  }
-
-  #seekRow.visible {
+  #floatStrip {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 20;
     display: flex;
-  }
-
-  #speedRow {
-    display: none;
-    width: 100%;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 12px;
-    background: var(--bg-mid);
-    border-top: 1px solid var(--viridian-dim);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    color: var(--viridian-glow);
-    box-sizing: border-box;
-  }
-
-  #speedRow.visible {
-    display: flex;
-  }
-
-  #speedRow .speed-label {
-    flex-shrink: 0;
-    color: var(--viridian-glow);
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    font-size: 9px;
-  }
-
-  #speedRow .speed-btns {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    flex-direction: column;
     gap: 4px;
-    flex: 1;
+    padding: 6px 0 6px 4px;
+    background: rgba(18, 18, 31, 0.82);
+    border: 1px solid rgba(46, 125, 107, 0.45);
+    border-right: none;
+    border-radius: 10px 0 0 10px;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
-  #speedRow .speed-btn {
-    font-size: 9px;
-    padding: 2px 7px;
-  }
-
-  #seekCurrent,
-  #seekDuration {
-    flex-shrink: 0;
-    min-width: 40px;
-    color: var(--viridian-glow);
-  }
-
-  #seekDuration {
-    text-align: right;
-  }
-
-  #seekBar {
-    flex: 1;
-    height: 4px;
-    margin: 0;
-    padding: 0;
-    -webkit-appearance: none;
-    appearance: none;
-    border-radius: 2px;
-    background: var(--bg-mid);
-    cursor: pointer;
-    accent-color: var(--viridian);
-  }
-
-  #seekBar::-webkit-slider-runnable-track {
-    height: 4px;
-    border-radius: 2px;
-  }
-
-  #seekBar::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 10px;
-    height: 10px;
-    margin-top: -3px;
-    border-radius: 50%;
-    background: var(--viridian-glow);
-    border: 1px solid var(--viridian);
-    transition: background 120ms ease;
-  }
-
-  #seekBar:hover::-webkit-slider-thumb {
-    background: var(--gold);
-    border-color: var(--gold);
-  }
-
-  #seekBar::-moz-range-track {
-    height: 4px;
-    border-radius: 2px;
-    background: transparent;
-  }
-
-  #seekBar::-moz-range-thumb {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--viridian-glow);
-    border: 1px solid var(--viridian);
-    transition: background 120ms ease;
-  }
-
-  #seekBar:hover::-moz-range-thumb {
-    background: var(--gold);
-    border-color: var(--gold);
-  }
-
-  #devPanel {
-    background: rgba(18, 18, 31, 0.96); /* slightly darker than stage */
-    border-top: 1px solid var(--viridian-dim);
-    border-bottom: 1px solid rgba(46, 125, 107, 0.25);
-    padding: 8px 20px 10px;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    color: var(--parchment-dim);
-    overflow-y: auto;
-    max-height: min(220px, 35vh);
-    transition: max-height 220ms ease, opacity 220ms ease, transform 220ms ease;
-    transform-origin: bottom;
-  }
-
-  #devDock.collapsed #devPanel {
-    max-height: 0px;
-    opacity: 0;
-    transform: translateY(8px);
-    padding-top: 0;
-    padding-bottom: 0;
-    border-bottom-color: transparent;
-  }
-
-  #devPanelTop {
+  .float-icon {
+    width: 44px;
+    min-height: 44px;
+    padding: 4px 2px;
     display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-bottom: 8px;
-  }
-
-  #devTabs {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex: 1;
-  }
-
-  .dev-tab {
-    background: none;
-    border: none;
-    color: var(--parchment-dim);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    padding: 6px 6px 4px;
-    cursor: pointer;
-    text-transform: uppercase;
-    border-bottom: 2px solid transparent;
-    transition: color 120ms ease, border-color 120ms ease;
-  }
-
-  .dev-tab:hover { color: var(--parchment); }
-  .dev-tab.active {
-    color: var(--viridian-glow);
-    border-bottom-color: var(--viridian-glow);
-  }
-
-  #devCollapseBtn {
-    margin-left: auto;
-    width: 28px;
-    height: 24px;
-    padding: 0;
-    display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(46, 125, 107, 0.6);
-    color: var(--viridian-glow);
+    gap: 2px;
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    color: var(--parchment-dim);
+    font-family: 'Share Tech Mono', monospace;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
   }
 
-  #devCollapseBtn .arrow {
-    display: inline-block;
-    transform: rotate(0deg);
-    transition: transform 200ms ease;
-    font-size: 12px;
+  .float-icon .fi-glyph {
+    font-size: 16px;
+    line-height: 1;
+    color: var(--parchment);
+  }
+
+  .float-icon .fi-label {
+    font-size: 7px;
+    letter-spacing: 0.08em;
     line-height: 1;
   }
 
-  #devDock.collapsed #devCollapseBtn .arrow {
-    transform: rotate(180deg);
+  .float-icon:hover {
+    color: var(--parchment);
+    background: rgba(46, 125, 107, 0.12);
   }
 
-  .dev-tabContent {
-    display: none;
-    gap: 16px;
-    align-items: center;
-    flex-wrap: wrap;
+  .float-icon.active {
+    border-left-color: var(--gold);
+    color: var(--gold-bright);
+    background: rgba(46, 125, 107, 0.2);
   }
-  .dev-tabContent.active { display: flex; }
 
-  .soon {
-    opacity: 0.4;
+  .float-icon.active .fi-glyph {
+    color: var(--gold-bright);
+  }
+
+  #sidebarBackdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 24;
+    background: rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  #sidebarBackdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  #sidebar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: var(--sidebar-w);
+    z-index: 25;
+    background: rgba(18, 18, 31, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-left: 1px solid var(--viridian-dim);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
     pointer-events: none;
   }
 
-  .soonTag {
-    display: inline-block;
-    margin-left: 6px;
-    padding: 1px 5px;
-    border: 1px solid rgba(184, 150, 62, 0.5);
-    color: rgba(212, 174, 87, 0.75);
-    font-size: 8px;
-    letter-spacing: 0.2em;
+  #sidebar.open {
+    transform: translateX(0);
+    pointer-events: auto;
   }
 
-  #devBar {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 8px 20px;
-    background: var(--bg-mid);
-    border-top: 1px solid var(--viridian-dim);
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    color: var(--parchment-dim);
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .live-tab-panel {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .live-tab-desc {
-    font-size: 9px;
-    color: var(--parchment-dim);
-    letter-spacing: 0.08em;
-    line-height: 1.4;
-  }
-
-  .live-tab-note {
-    font-size: 8px;
-    color: var(--parchment-dim);
-    opacity: 0.75;
-    letter-spacing: 0.06em;
-    line-height: 1.35;
-    max-width: 420px;
-  }
-
-  #liveUrlInput {
-    flex: 1;
-    min-width: 200px;
-    background: var(--bg-mid);
+  #sidebarClose {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    z-index: 2;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid rgba(46, 125, 107, 0.5);
+    background: rgba(26, 26, 46, 0.6);
     color: var(--parchment);
-    border: 1px solid var(--viridian);
-    padding: 4px 8px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
     font-family: inherit;
-    font-size: 9px;
   }
 
-  #liveUrlStatus {
+  #sidebarScroll {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 48px 14px 20px;
+  }
+
+  .sidebar-section {
     display: none;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .sidebar-section.active {
+    display: flex;
+  }
+
+  .sidebar-hdr {
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--viridian-glow);
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(46, 125, 107, 0.35);
+    margin-bottom: 4px;
+  }
+
+  .sidebar-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .sidebar-field label,
+  .sidebar-field .field-label {
     font-size: 9px;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
     color: var(--viridian-glow);
   }
 
-  #liveUrlStatus.visible {
-    display: block;
-  }
-
-  #liveUrlStatus.error {
-    color: var(--red-alert);
-  }
-
-  @media (max-height: 700px) {
-    #devPanel { max-height: min(160px, 28vh); }
-    #devBar { padding: 4px 12px; }
-    #topbar { padding: 4px 12px; }
-  }
-
-  .ctrl-group {
+  .sidebar-field-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+  }
+
+  .sidebar-field-row .field-label {
     flex-shrink: 0;
+    min-width: 72px;
   }
 
-  .ctrl-group label {
-    color: var(--viridian-glow);
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
+  .sidebar-field-row input[type=range] {
+    flex: 1;
+  }
+
+  .sidebar-val {
     font-size: 9px;
+    color: var(--parchment-dim);
+    text-align: right;
   }
 
-  input[type=range] {
-    width: 80px;
-    accent-color: var(--viridian-glow);
+  .sidebar-btn-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .sidebar-btn-grid.cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .sidebar-palette-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
   }
 
   .btn {
     background: none;
     border: 1px solid var(--viridian);
     color: var(--viridian-glow);
-    padding: 3px 10px;
+    padding: 10px 8px;
+    min-height: 44px;
     font-family: 'Share Tech Mono', monospace;
     font-size: 9px;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.12em;
     cursor: pointer;
     text-transform: uppercase;
     transition: all 0.15s;
@@ -684,17 +562,240 @@
     color: var(--bg-deep);
   }
 
-  #fps { color: var(--gold); margin-left: auto; flex-shrink: 0; }
+  .btn.btn-wide {
+    width: 100%;
+  }
+
+  .btn.btn-breaking {
+    border-color: var(--red-alert);
+    color: var(--red-alert);
+    font-weight: 700;
+  }
+
+  .btn.btn-breaking:hover {
+    background: var(--red-alert);
+    color: var(--parchment);
+  }
+
+  .sidebar input[type=text],
+  .sidebar input[type=url],
+  .sidebar select {
+    width: 100%;
+    min-height: 44px;
+    background: var(--bg-mid);
+    color: var(--parchment);
+    border: 1px solid var(--viridian);
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 10px;
+  }
+
+  .sidebar input[type=range],
+  #transportStrip input[type=range].transport-vol {
+    width: 100%;
+    height: 6px;
+    margin: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 3px;
+    background: var(--bg-deep);
+    accent-color: var(--viridian-glow);
+  }
+
+  .sidebar input[type=range]::-webkit-slider-thumb,
+  #transportStrip #seekBar::-webkit-slider-thumb,
+  #transportStrip .transport-vol::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--viridian-glow);
+    border: 2px solid var(--viridian);
+    margin-top: -7px;
+  }
+
+  .sidebar input[type=range]::-webkit-slider-runnable-track,
+  #transportStrip #seekBar::-webkit-slider-runnable-track,
+  #transportStrip .transport-vol::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+  }
+
+  .live-tab-note {
+    font-size: 8px;
+    color: var(--parchment-dim);
+    opacity: 0.8;
+    line-height: 1.4;
+    letter-spacing: 0.05em;
+  }
+
+  #liveUrlStatus {
+    display: none;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    color: var(--viridian-glow);
+  }
+
+  #liveUrlStatus.visible { display: block; }
+  #liveUrlStatus.error { color: var(--red-alert); }
+
+  #speedRow .speed-label {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--viridian-glow);
+    text-transform: uppercase;
+  }
+
+  #speedRow .speed-btns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  #speedRow .speed-btn {
+    min-height: 44px;
+    font-size: 9px;
+  }
+
+  /* ── Transport strip ──────────────────────────────────────────────────── */
+  #transportStrip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: var(--transport-h);
+    min-height: var(--transport-h);
+    padding: 0 12px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg-mid);
+    border-top: 1px solid var(--viridian);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--parchment-dim);
+    flex-wrap: nowrap;
+    overflow: hidden;
+    z-index: 30;
+  }
+
+  .transport-file-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--viridian);
+    color: var(--viridian-glow);
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    cursor: pointer;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .transport-file-btn input[type=file] {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  #sourceStatusWrap.source-status-group {
+    flex: 0 1 140px;
+    min-width: 0;
+    max-width: 180px;
+    font-size: 9px;
+  }
+
+  #playPauseWrap {
+    flex-shrink: 0;
+  }
+
+  #playPauseWrap .btn {
+    min-height: 36px;
+    padding: 6px 12px;
+  }
+
+  #transportSeek {
+    display: none;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  #transportSeek.visible {
+    display: flex;
+  }
+
+  #seekCurrent,
+  #seekDuration {
+    flex-shrink: 0;
+    font-size: 9px;
+    color: var(--viridian-glow);
+    min-width: 36px;
+  }
+
+  #seekBar {
+    flex: 1;
+    min-width: 40px;
+    height: 6px;
+    margin: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 3px;
+    background: var(--bg-deep);
+    cursor: pointer;
+  }
+
+  .transport-vol-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  #sourceVolume.transport-vol {
+    width: 60px;
+    flex: none;
+  }
+
+  #sourceVolumeVal {
+    font-size: 9px;
+    min-width: 28px;
+  }
+
+  .transport-rec {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .transport-rec .btn {
+    min-height: 36px;
+    padding: 6px 10px;
+  }
+
+  #recIndicator {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+  }
+
+  #fps {
+    margin-left: auto;
+    flex-shrink: 0;
+    color: var(--gold);
+    font-size: 9px;
+  }
 
   .source-status-group {
     display: none;
     align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    max-width: 320px;
+    gap: 6px;
+    min-width: 0;
   }
 
   .source-status-group.visible {
@@ -713,30 +814,16 @@
     animation: pulse 1s ease-in-out infinite;
   }
 
-  .source-status-group.source-image .source-status-dot {
-    animation: none;
-    opacity: 1;
-  }
-
   .source-status-group.source-loading .source-status-dot,
   .source-status-group.source-complete .source-status-dot {
     display: none;
   }
 
   .source-status-text {
-    color: var(--parchment-dim);
-    font-size: 10px;
-    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  #sourceStatusWrap.source-status-group {
-    font-size: 10px;
-  }
-
-  #sourceStatusDot {
-    color: var(--viridian-glow);
+    white-space: nowrap;
+    color: var(--parchment-dim);
   }
 
   .source-status-group.source-loading .source-status-text {
@@ -745,6 +832,15 @@
 
   .source-status-group.source-complete .source-status-text {
     color: var(--gold);
+  }
+
+  @media (max-width: 480px) {
+    :root { --sidebar-w: 100vw; }
+  }
+
+  @media (max-height: 700px) {
+    #topbar { padding: 4px 12px; }
+    :root { --transport-h: 52px; }
   }
 
 </style>
@@ -759,14 +855,13 @@
     <span class="logo">Source Texture Pipeline</span>
   </div>
 
+  <div id="mainArea">
   <div id="stage">
     <div id="canvasWrap">
       <canvas id="bgCanvas"></canvas>
       <canvas id="charCanvas"></canvas>
-      <canvas id="uiCanvas"></canvas>
-      <canvas id="debugCanvas"></canvas>
 
-      <div id="uploadPrompt">DROP VIDEO OR IMAGE</div>
+      <div id="uploadPrompt">CHOOSE A SOURCE BELOW</div>
 
       <div id="broadcastOverlay">
         <div id="liveTag"><span class="dot"></span>TRANSMISSION</div>
@@ -793,237 +888,224 @@
     </div>
   </div>
 
-  <div id="devDock">
-    <div id="seekRow" aria-label="Video seek">
-      <span id="seekCurrent">00:00</span>
-      <input type="range" id="seekBar" min="0" max="0" value="0" step="any" aria-label="Seek">
-      <span id="seekDuration">00:00</span>
-    </div>
+  <nav id="floatStrip" aria-label="Settings sections">
+    <button type="button" class="float-icon" data-section="shader" title="Shader"><span class="fi-glyph">⊞</span><span class="fi-label">SHADER</span></button>
+    <button type="button" class="float-icon" data-section="color" title="Color"><span class="fi-glyph">◑</span><span class="fi-label">COLOR</span></button>
+    <button type="button" class="float-icon" data-section="overlay" title="Overlay"><span class="fi-glyph">⋮</span><span class="fi-label">OVERLAY</span></button>
+    <button type="button" class="float-icon" data-section="live" title="Live"><span class="fi-glyph">⊕</span><span class="fi-label">LIVE</span></button>
+    <button type="button" class="float-icon" data-section="broadcast" title="Broadcast"><span class="fi-glyph">⊏</span><span class="fi-label">BROADCAST</span></button>
+  </nav>
 
-    <div id="speedRow" aria-label="Playback speed">
-      <span class="speed-label">SPEED</span>
-      <div class="speed-btns">
-        <button class="btn speed-btn" type="button" data-speed="0.25">0.25x</button>
-        <button class="btn speed-btn" type="button" data-speed="0.5">0.5x</button>
-        <button class="btn speed-btn" type="button" data-speed="0.75">0.75x</button>
-        <button class="btn speed-btn active" type="button" data-speed="1">1x</button>
-        <button class="btn speed-btn" type="button" data-speed="1.25">1.25x</button>
-        <button class="btn speed-btn" type="button" data-speed="1.5">1.5x</button>
-        <button class="btn speed-btn" type="button" data-speed="1.75">1.75x</button>
-        <button class="btn speed-btn" type="button" data-speed="2">2x</button>
-        <button class="btn speed-btn" type="button" data-speed="3">3x</button>
-      </div>
-    </div>
+  <div id="sidebarBackdrop" aria-hidden="true"></div>
+  <aside id="sidebar" class="sidebar" aria-hidden="true">
+    <button type="button" id="sidebarClose" aria-label="Close panel">×</button>
+    <div id="sidebarScroll">
 
-    <div id="devPanel" aria-label="Dev controls panel">
-      <div id="devPanelTop">
-        <div id="devTabs" role="tablist" aria-label="Dev control tabs">
-          <button class="dev-tab active" role="tab" aria-selected="true" data-tab="shader">Shader</button>
-          <button class="dev-tab" role="tab" aria-selected="false" data-tab="color">Color</button>
-          <button class="dev-tab" role="tab" aria-selected="false" data-tab="overlay">Overlay</button>
-          <button class="dev-tab" role="tab" aria-selected="false" data-tab="live">Live</button>
-          <button class="dev-tab" role="tab" aria-selected="false" data-tab="broadcast">Broadcast</button>
-        </div>
-        <button class="btn" id="devCollapseBtn" type="button" title="Collapse/expand panel" aria-label="Collapse/expand panel">
-          <span class="arrow">▾</span>
-        </button>
-      </div>
-
-      <!-- SHADER TAB -->
-      <div class="dev-tabContent active" data-tab-content="shader" role="tabpanel">
-        <div class="ctrl-group">
-          <label>Mode</label>
-          <button class="btn active" id="btnAscii" onclick="toggleShader('ascii')">ASCII</button>
-          <button class="btn" id="btnDither" onclick="toggleShader('dither')">DITHER</button>
+      <section class="sidebar-section" data-section="shader">
+        <h2 class="sidebar-hdr">Shader</h2>
+        <div class="sidebar-btn-grid cols-3">
+          <button class="btn active" id="btnAscii" type="button" onclick="toggleShader('ascii')">ASCII</button>
+          <button class="btn" id="btnDither" type="button" onclick="toggleShader('dither')">DITHER</button>
+          <button class="btn" id="btnRaw" type="button" onclick="toggleShader('raw')">RAW</button>
           <button class="btn" id="btnThermal" type="button" onclick="toggleThermal()">THERMAL</button>
           <button class="btn" id="btnNightVision" type="button" onclick="toggleNightVision()">NIGHTVISION</button>
-          <button class="btn" id="btnRaw" onclick="toggleShader('raw')">RAW</button>
         </div>
-
-        <div class="ctrl-group">
-          <label>Cell</label>
+        <div class="sidebar-field">
+          <label for="cellSize">Cell size</label>
           <input type="range" id="cellSize" min="4" max="20" value="8" step="1">
-          <span id="cellSizeVal">8px</span>
+          <span class="sidebar-val" id="cellSizeVal">8px</span>
         </div>
-
-        <div class="ctrl-group" id="tintGroup">
-          <label>Tint</label>
+        <div class="sidebar-field" id="tintGroup">
+          <label for="tintStr">Tint</label>
           <input type="range" id="tintStr" min="0" max="100" value="60" step="1">
-          <span id="tintVal">60%</span>
+          <span class="sidebar-val" id="tintVal">60%</span>
         </div>
-
-        <div class="ctrl-group">
-          <label>Brightness</label>
+        <div class="sidebar-field">
+          <label for="brightness">Brightness</label>
           <input type="range" id="brightness" min="60" max="220" value="140" step="1">
-          <span id="brightnessVal">1.40x</span>
+          <span class="sidebar-val" id="brightnessVal">1.40x</span>
         </div>
-
-        <div class="ctrl-group">
-          <label>Glitch</label>
+        <div class="sidebar-field">
+          <label for="glitchAmt">Glitch</label>
           <input type="range" id="glitchAmt" min="0" max="100" value="20" step="1">
-          <span id="glitchVal">20%</span>
+          <span class="sidebar-val" id="glitchVal">20%</span>
         </div>
-
-        <div class="ctrl-group">
-          <label>Chroma</label>
+        <div class="sidebar-field">
+          <label for="chromaAmt">Chroma</label>
           <input type="range" id="chromaAmt" min="0" max="100" value="0" step="1">
-          <span id="chromaVal">0%</span>
+          <span class="sidebar-val" id="chromaVal">0%</span>
         </div>
-
-        <div class="ctrl-group">
-          <label>CRT</label>
+        <div class="sidebar-field">
+          <label for="crtAmt">CRT</label>
           <input type="range" id="crtAmt" min="0" max="100" value="0" step="1">
-          <span id="crtVal">0%</span>
+          <span class="sidebar-val" id="crtVal">0%</span>
         </div>
-
-        <div class="ctrl-group">
-          <label>Glow</label>
+        <div class="sidebar-field">
+          <label for="glowAmt">Glow</label>
           <input type="range" id="glowAmt" min="0" max="100" value="0" step="1">
-          <span id="glowVal">0%</span>
+          <span class="sidebar-val" id="glowVal">0%</span>
         </div>
-      </div>
+      </section>
 
-      <!-- COLOR TAB -->
-      <div class="dev-tabContent" data-tab-content="color" role="tabpanel">
-        <div class="ctrl-group">
-          <label>Palette</label>
+      <section class="sidebar-section" data-section="color">
+        <h2 class="sidebar-hdr">Color</h2>
+        <div class="sidebar-palette-grid">
           <button class="btn active" id="btnViridian" type="button" onclick="setColorPreset(0)">VIRIDIAN</button>
           <button class="btn" id="btnMidnight" type="button" onclick="setColorPreset(1)">MIDNIGHT</button>
           <button class="btn" id="btnAmber" type="button" onclick="setColorPreset(2)">AMBER</button>
           <button class="btn" id="btnCrimson" type="button" onclick="setColorPreset(3)">CRIMSON</button>
           <button class="btn" id="btnGhost" type="button" onclick="setColorPreset(4)">GHOST</button>
         </div>
-        <div class="ctrl-group">
-          <label>Stream</label>
+        <div class="sidebar-field">
+          <label for="streamInt">Stream intensity</label>
           <input type="range" id="streamInt" min="0" max="100" value="80" step="1">
-          <span id="streamVal">80%</span>
+          <span class="sidebar-val" id="streamVal">80%</span>
         </div>
-      </div>
+      </section>
 
-      <!-- OVERLAY TAB -->
-      <div class="dev-tabContent" data-tab-content="overlay" role="tabpanel">
-        <div class="ctrl-group">
-          <label>Rain</label>
-          <button class="btn" id="btnRain" type="button">OFF</button>
+      <section class="sidebar-section" data-section="overlay">
+        <h2 class="sidebar-hdr">Overlay</h2>
+        <div class="sidebar-field">
+          <div class="sidebar-field-row">
+            <span class="field-label">Rain</span>
+            <button class="btn" id="btnRain" type="button">OFF</button>
+          </div>
           <input type="range" id="rainAmt" min="0" max="100" value="60" step="1">
-          <span id="rainVal">60%</span>
+          <span class="sidebar-val" id="rainVal">60%</span>
         </div>
-        <div class="ctrl-group">
-          <label>Interference</label>
-          <button class="btn" id="btnInterf" type="button">OFF</button>
+        <div class="sidebar-field">
+          <div class="sidebar-field-row">
+            <span class="field-label">Interference</span>
+            <button class="btn" id="btnInterf" type="button">OFF</button>
+          </div>
           <input type="range" id="interfAmt" min="0" max="100" value="50" step="1">
-          <span id="interfVal">50%</span>
+          <span class="sidebar-val" id="interfVal">50%</span>
         </div>
-        <div class="ctrl-group">
-          <label>VHS</label>
-          <button class="btn" id="btnVhs" type="button">OFF</button>
+        <div class="sidebar-field">
+          <div class="sidebar-field-row">
+            <span class="field-label">VHS</span>
+            <button class="btn" id="btnVhs" type="button">OFF</button>
+          </div>
           <input type="range" id="vhsAmt" min="0" max="100" value="60" step="1">
-          <span id="vhsVal">60%</span>
+          <span class="sidebar-val" id="vhsVal">60%</span>
         </div>
-        <div class="ctrl-group">
-          <label>Pixel Sort</label>
-          <button class="btn" id="btnPixelSort" type="button">OFF</button>
+        <div class="sidebar-field">
+          <div class="sidebar-field-row">
+            <span class="field-label">Pixel Sort</span>
+            <button class="btn" id="btnPixelSort" type="button">OFF</button>
+          </div>
+          <label for="pixelSortAmt">Amount</label>
           <input type="range" id="pixelSortAmt" min="0" max="100" value="70" step="1">
-          <span id="pixelSortVal">70%</span>
-          <label style="margin-left:4px;">Thresh</label>
+          <span class="sidebar-val" id="pixelSortVal">70%</span>
+          <label for="pixelSortThresh">Threshold</label>
           <input type="range" id="pixelSortThresh" min="0" max="100" value="50" step="1">
-          <span id="pixelSortThreshVal">50%</span>
+          <span class="sidebar-val" id="pixelSortThreshVal">50%</span>
         </div>
-      </div>
+      </section>
 
-      <!-- LIVE TAB -->
-      <div class="dev-tabContent live-tab-panel" data-tab-content="live" role="tabpanel">
-        <div class="ctrl-group" style="flex-direction:column;align-items:flex-start;gap:4px;">
-          <label>LIVE SOURCE</label>
-          <span class="live-tab-desc">Load a direct video URL to use as source</span>
-        </div>
-        <div class="ctrl-group" style="width:100%;max-width:520px;">
-          <input id="liveUrlInput" type="url" placeholder="https://example.com/video.mp4" autocomplete="off">
-          <button class="btn" id="btnLoadUrl" type="button">LOAD</button>
-        </div>
-        <p class="live-tab-note">Supports direct MP4/WebM URLs only. YouTube and streaming URLs are not supported.</p>
+      <section class="sidebar-section" data-section="live">
+        <h2 class="sidebar-hdr">Live source</h2>
+        <p class="live-tab-note">Load a direct video URL to use as source. Supports direct MP4/WebM URLs only. YouTube and streaming URLs are not supported.</p>
+        <input id="liveUrlInput" type="url" placeholder="https://example.com/video.mp4" autocomplete="off">
+        <button class="btn btn-wide" id="btnLoadUrl" type="button">LOAD</button>
         <span id="liveUrlStatus" role="status" aria-live="polite"></span>
-      </div>
+      </section>
 
-      <!-- BROADCAST TAB -->
-      <div class="dev-tabContent" data-tab-content="broadcast" role="tabpanel">
-        <div class="ctrl-group">
-          <label>Category</label>
-          <select id="broadcastCategory" style="background:var(--bg-mid);color:var(--viridian-glow);border:1px solid var(--viridian);padding:2px 6px;font-family:inherit;font-size:9px;">
+      <section class="sidebar-section" data-section="broadcast">
+        <h2 class="sidebar-hdr">Broadcast</h2>
+        <button class="btn btn-wide active" id="btnPresetNews" type="button">NEWS PRESET</button>
+        <button class="btn btn-wide" id="btnPresetMusic" type="button">MUSIC PRESET</button>
+        <div class="sidebar-field">
+          <label for="broadcastCategory">Category</label>
+          <select id="broadcastCategory">
             <option value="world">WORLD</option>
             <option value="finance">FINANCE</option>
             <option value="entertainment">ENTERTAINMENT</option>
             <option value="esports">ESPORTS</option>
             <option value="none">NONE</option>
           </select>
-          <input id="categoryCustom" type="text" placeholder="Custom tag" style="width:72px;background:var(--bg-mid);color:var(--parchment);border:1px solid var(--viridian);padding:3px 6px;font-family:inherit;font-size:9px;">
         </div>
-        <div class="ctrl-group">
-          <label>Lower Third</label>
+        <div class="sidebar-field">
+          <label for="categoryCustom">Custom tag</label>
+          <input id="categoryCustom" type="text" placeholder="MUSIC, LIVE, …">
+        </div>
+        <div class="sidebar-field">
+          <label for="headlineInput">Headline</label>
+          <input id="headlineInput" type="text" value="Victoria Rois">
+        </div>
+        <div class="sidebar-field">
+          <label for="subtitleInput">Subtitle</label>
+          <input id="subtitleInput" type="text" value="VICTORIA ENGINE NEWS">
+        </div>
+        <div class="sidebar-field">
+          <label for="tickerInput">Ticker</label>
+          <input id="tickerInput" type="text" value="VICTORIA ENGINE — SOURCE TEXTURE SCAN ACTIVE /// THERMAL DATA REMAP + ASCII PASS /// WEBGL2 COMPOSITE">
+        </div>
+        <div class="sidebar-field-row">
+          <span class="field-label">Lower third</span>
           <button class="btn active" id="toggleLowerThird" type="button">ON</button>
         </div>
-        <div class="ctrl-group" style="flex:1;min-width:260px;">
-          <label>Headline</label>
-          <input id="headlineInput" type="text" value="Victoria Rois" style="flex:1;min-width:160px;background:var(--bg-mid);color:var(--parchment);border:1px solid var(--viridian);padding:3px 8px;font-family:inherit;font-size:9px;">
-        </div>
-        <div class="ctrl-group" style="flex:1;min-width:260px;">
-          <label>Subtitle</label>
-          <input id="subtitleInput" type="text" value="VICTORIA ENGINE NEWS" style="flex:1;min-width:160px;background:var(--bg-mid);color:var(--parchment);border:1px solid var(--viridian);padding:3px 8px;font-family:inherit;font-size:9px;">
-        </div>
-        <div class="ctrl-group">
-          <label>Preset</label>
-          <button class="btn active" id="btnPresetNews" type="button">NEWS</button>
-          <button class="btn" id="btnPresetMusic" type="button">MUSIC</button>
-        </div>
-        <div class="ctrl-group" style="flex:1;min-width:320px;">
-          <label>Ticker</label>
-          <input id="tickerInput" type="text" value="VICTORIA ENGINE — SOURCE TEXTURE SCAN ACTIVE /// THERMAL DATA REMAP + ASCII PASS /// WEBGL2 COMPOSITE" style="flex:1;min-width:200px;background:var(--bg-mid);color:var(--parchment);border:1px solid var(--viridian);padding:3px 8px;font-family:inherit;font-size:9px;">
-        </div>
-        <div class="ctrl-group">
-          <button class="btn" id="btnBreaking" type="button" style="border-color:var(--red-alert);color:var(--red-alert);font-weight:700;">BREAKING</button>
-        </div>
-        <div class="ctrl-group">
-          <label>Bug</label>
+        <button class="btn btn-wide btn-breaking" id="btnBreaking" type="button">BREAKING</button>
+        <div class="sidebar-field-row">
+          <span class="field-label">Corner bug</span>
           <button class="btn" id="toggleCornerBug" type="button">OFF</button>
-          <input type="file" id="cornerBugFile" accept=".png,.jpg,.jpeg" style="color:var(--parchment-dim);font-size:9px;background:none;border:none;max-width:180px;">
         </div>
-      </div>
-    </div>
+        <input type="file" id="cornerBugFile" accept=".png,.jpg,.jpeg">
+        <div class="sidebar-field-row">
+          <span class="field-label">Loop</span>
+          <button type="button" class="btn" id="btnLoop" title="Video loop + image idle motion">OFF</button>
+        </div>
+        <div id="speedRow" aria-label="Playback speed">
+          <span class="speed-label">SPEED</span>
+          <div class="speed-btns">
+            <button class="btn speed-btn" type="button" data-speed="0.25">0.25x</button>
+            <button class="btn speed-btn" type="button" data-speed="0.5">0.5x</button>
+            <button class="btn speed-btn" type="button" data-speed="0.75">0.75x</button>
+            <button class="btn speed-btn active" type="button" data-speed="1">1x</button>
+            <button class="btn speed-btn" type="button" data-speed="1.25">1.25x</button>
+            <button class="btn speed-btn" type="button" data-speed="1.5">1.5x</button>
+            <button class="btn speed-btn" type="button" data-speed="1.75">1.75x</button>
+            <button class="btn speed-btn" type="button" data-speed="2">2x</button>
+            <button class="btn speed-btn" type="button" data-speed="3">3x</button>
+          </div>
+        </div>
+      </section>
 
-    <!-- ALWAYS-VISIBLE BAR -->
-    <div id="devBar" aria-label="Dev controls bar">
-      <div class="ctrl-group">
-        <label>Source</label>
-        <input type="file" id="sourceFile" accept=".mp4,.webm,.mov,.jpg,.jpeg,.png,.wav,.mp3,.ogg"
-          style="color:var(--parchment-dim);font-size:9px;background:none;border:none;">
-      </div>
-      <div class="ctrl-group">
-        <label>Loop</label>
-        <button type="button" class="btn" id="btnLoop" title="Video loop + image idle motion">OFF</button>
-      </div>
-      <div class="ctrl-group" id="playPauseWrap" style="display:none;">
-        <button type="button" class="btn" id="btnPlayPause">PLAY ▶</button>
-      </div>
-      <div id="sourceStatusWrap" class="source-status-group">
-        <span id="sourceStatusDot" class="source-status-dot">●</span>
-        <span id="sourceStatusText" class="source-status-text"></span>
-      </div>
-      <div class="ctrl-group">
-        <label>Volume</label>
-        <input type="range" id="sourceVolume" min="0" max="100" value="80" step="1">
-        <span id="sourceVolumeVal">80%</span>
-      </div>
-      <div class="ctrl-group">
-        <label>Record</label>
-        <button class="btn" id="btnRec">REC ●</button>
-        <button class="btn" id="btnStop" disabled style="opacity:0.5;cursor:not-allowed;">STOP ■</button>
-        <span id="recIndicator" style="display:none;align-items:center;gap:6px;color:var(--parchment);">
-          <span id="recDot" style="width:7px;height:7px;border-radius:50%;background:var(--red-alert);display:inline-block;animation:pulse 1s ease-in-out infinite;"></span>
-          <span id="recTime" style="color:var(--red-alert);letter-spacing:0.12em;">REC 00:00</span>
-        </span>
-      </div>
-      <span id="fps">-- fps</span>
     </div>
+  </aside>
+
+  </div>
+
+  <div id="transportStrip" aria-label="Transport controls">
+    <label class="transport-file-btn">
+      CHOOSE
+      <input type="file" id="sourceFile" accept=".mp4,.webm,.mov,.jpg,.jpeg,.png,.heic,.heif,.wav,.mp3,.ogg">
+    </label>
+    <div id="sourceStatusWrap" class="source-status-group">
+      <span id="sourceStatusDot" class="source-status-dot">●</span>
+      <span id="sourceStatusText" class="source-status-text"></span>
+    </div>
+    <div id="playPauseWrap" style="display:none;">
+      <button type="button" class="btn" id="btnPlayPause">PLAY ▶</button>
+    </div>
+    <div id="transportSeek" aria-label="Video seek">
+      <span id="seekCurrent">00:00</span>
+      <input type="range" id="seekBar" min="0" max="0" value="0" step="any" aria-label="Seek">
+      <span id="seekDuration">00:00</span>
+    </div>
+    <div class="transport-vol-wrap">
+      <input type="range" id="sourceVolume" class="transport-vol" min="0" max="100" value="80" step="1" aria-label="Volume">
+      <span id="sourceVolumeVal">80%</span>
+    </div>
+    <div class="transport-rec">
+      <button class="btn" id="btnRec" type="button">REC ●</button>
+      <button class="btn" id="btnStop" type="button" disabled style="opacity:0.5;cursor:not-allowed;">STOP ■</button>
+      <span id="recIndicator">
+        <span id="recDot" style="width:7px;height:7px;border-radius:50%;background:var(--red-alert);display:inline-block;animation:pulse 1s ease-in-out infinite;"></span>
+        <span id="recTime" style="color:var(--red-alert);letter-spacing:0.12em;">REC 00:00</span>
+      </span>
+    </div>
+    <span id="fps">-- fps</span>
   </div>
 
 </div>
@@ -1050,7 +1132,6 @@ const DENSITY = ' .:-=+*#%@█▓▒░';
 
 const bgCanvas   = document.getElementById('bgCanvas');
 const charCanvas = document.getElementById('charCanvas');
-const uiCanvas   = document.getElementById('uiCanvas');
 const wrap       = document.getElementById('canvasWrap');
 const uploadPrompt = document.getElementById('uploadPrompt');
 
@@ -1060,7 +1141,7 @@ let glChar = null;
 function resizeCanvases() {
   const w = wrap.clientWidth;
   const h = wrap.clientHeight;
-  for (const c of [bgCanvas, charCanvas, uiCanvas]) {
+  for (const c of [bgCanvas, charCanvas]) {
     c.width  = w;
     c.height = h;
   }
@@ -1201,62 +1282,6 @@ function renderBg(time, intensity) {
   glBg.drawArrays(glBg.TRIANGLES, 0, 6);
 }
 
-// ── Video audio → same interface as AudioAnalyzer for AudioSync ─────────────
-class VideoAudioBridge {
-  constructor(videoEl) {
-    this.video = videoEl;
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    this.audioContext = new Ctx();
-    this.analyser = this.audioContext.createAnalyser();
-    this.analyser.fftSize = 256;
-    this.analyser.smoothingTimeConstant = 0.85;
-    this._srcNode = this.audioContext.createMediaElementSource(videoEl);
-    this._srcNode.connect(this.analyser);
-    this.analyser.connect(this.audioContext.destination);
-    this._freqData = new Uint8Array(this.analyser.frequencyBinCount);
-    this._timeData = new Uint8Array(this.analyser.fftSize);
-  }
-
-  get isActive() {
-    return this.video && !this.video.paused && !this.video.ended && this.video.readyState >= 2;
-  }
-
-  async resume() {
-    if (this.audioContext.state === 'suspended') await this.audioContext.resume();
-  }
-
-  getBands() {
-    this.analyser.getByteFrequencyData(this._freqData);
-    const bins = this._freqData;
-    const to01 = (v) => Math.max(0, Math.min(1, v));
-    const avg = (from, to) => {
-      if (!bins.length) return 0;
-      const start = Math.max(0, from);
-      const end = Math.min(bins.length - 1, to);
-      if (end < start) return 0;
-      let sum = 0, n = 0;
-      for (let i = start; i <= end; i++) { sum += bins[i]; n++; }
-      return n ? sum / (n * 255) : 0;
-    };
-    return { low: to01(avg(0, 3)), mid: to01(avg(4, 11)), high: to01(avg(12, 23)) };
-  }
-
-  getAmplitude() {
-    this.analyser.getByteTimeDomainData(this._timeData);
-    let sumSq = 0;
-    for (let i = 0; i < this._timeData.length; i++) {
-      const x = (this._timeData[i] - 128) / 128;
-      sumSq += x * x;
-    }
-    const rms = Math.sqrt(sumSq / (this._timeData.length || 1));
-    return Math.max(0, Math.min(1, rms));
-  }
-
-  dispose() {
-    try { this.audioContext.close(); } catch {}
-  }
-}
-
 // ── Source state ─────────────────────────────────────────────────────────────
 /** When true: video loops on end; image uses IdleController motion. When false: video once + last frame; image/idle frozen until loop on. */
 let loopEnabled = false;
@@ -1269,7 +1294,6 @@ let sourceMode = 'none';
 let sourceVideo = null;
 let sourceImage = null;
 let sourceObjectUrl = null;
-let videoBridge = null;
 
 // Cached natural source dimensions for aspect-correct sampling (image/video).
 let sourceNaturalW = 0;
@@ -1310,7 +1334,6 @@ const expression = new ExpressionController();
 expression.setExpression('neutral', 0.0);
 
 let audioAnalyzer = null;
-let audioSync = null;
 let audioPlaying = false;
 
 let startTime = null;
@@ -1333,15 +1356,10 @@ function clearSource() {
     try { URL.revokeObjectURL(sourceObjectUrl); } catch {}
     sourceObjectUrl = null;
   }
-  if (videoBridge) {
-    videoBridge.dispose();
-    videoBridge = null;
-  }
   sourceVideo = null;
   sourceImage = null;
   sourceMode = 'none';
   audioPlaying = false;
-  audioSync = null;
   videoPlaybackComplete = false;
   videoTexReady = false;
   sourceFileLabel = '';
@@ -1373,7 +1391,7 @@ function syncSeekUIFromVideo() {
 }
 
 function initSeekFromMetadata() {
-  const row = document.getElementById('seekRow');
+  const seekWrap = document.getElementById('transportSeek');
   const bar = document.getElementById('seekBar');
   const durEl = document.getElementById('seekDuration');
   const cur = document.getElementById('seekCurrent');
@@ -1382,10 +1400,8 @@ function initSeekFromMetadata() {
     return;
   }
   const d = sourceVideo.duration;
-  const speedRow = document.getElementById('speedRow');
   if (!isFinite(d) || d <= 0) {
-    row?.classList.remove('visible');
-    speedRow?.classList.remove('visible');
+    seekWrap?.classList.remove('visible');
     return;
   }
   videoPlaybackComplete = false;
@@ -1397,8 +1413,7 @@ function initSeekFromMetadata() {
   }
   if (cur) cur.textContent = '00:00';
   if (durEl) durEl.textContent = fmtShortTime(d);
-  row?.classList.add('visible');
-  speedRow?.classList.add('visible');
+  seekWrap?.classList.add('visible');
   if (sourceVideo) sourceVideo.playbackRate = playbackSpeed;
   updateSeekFill();
 }
@@ -1428,13 +1443,11 @@ function resetPlaybackSpeed() {
 }
 
 function hideSeekRow() {
-  const row = document.getElementById('seekRow');
-  const speedRow = document.getElementById('speedRow');
+  const seekWrap = document.getElementById('transportSeek');
   const bar = document.getElementById('seekBar');
   const cur = document.getElementById('seekCurrent');
   const durEl = document.getElementById('seekDuration');
-  row?.classList.remove('visible');
-  speedRow?.classList.remove('visible');
+  seekWrap?.classList.remove('visible');
   resetPlaybackSpeed();
   if (bar) {
     bar.value = '0';
@@ -1526,7 +1539,7 @@ function updateSourceStatus() {
 }
 
 const VIDEO_EXT = /\.(mp4|webm|mov)$/i;
-const IMAGE_EXT = /\.(jpe?g|png)$/i;
+const IMAGE_EXT = /\.(jpe?g|png|heic|heif)$/i;
 const AUDIO_EXT = /\.(wav|mp3|ogg)$/i;
 
 function setLiveUrlStatus(message, isError = false) {
@@ -1583,8 +1596,6 @@ function wireVideoSource(v) {
     syncPlayPauseButton();
     updateSourceStatus();
   });
-  videoBridge = new VideoAudioBridge(v);
-  audioSync = new AudioSync(videoBridge, { holdMs: 100 });
   audioPlaying = false;
   syncPlayPauseButton();
   updateSourceStatus();
@@ -1615,11 +1626,6 @@ function loadLiveUrl(rawUrl) {
     sourceLoading = false;
     sourceMode = 'none';
     sourceVideo = null;
-    if (videoBridge) {
-      videoBridge.dispose();
-      videoBridge = null;
-    }
-    audioSync = null;
     setLiveUrlStatus('Could not load video. Check URL and CORS policy.', true);
     uploadPrompt.classList.remove('hidden');
     hideSeekRow();
@@ -1644,13 +1650,18 @@ function loadLiveUrl(rawUrl) {
 async function loadSourceFile(file) {
   if (!file) return;
   const name = file.name || '';
+  const mime = (file.type || '').toLowerCase();
   clearSource();
   sourceLoading = true;
   videoPlaybackComplete = false;
   sourceFileLabel = name || 'media';
   updateSourceStatus();
 
-  if (AUDIO_EXT.test(name)) {
+  const isVideo = mime.startsWith('video/') || VIDEO_EXT.test(name);
+  const isImage = mime.startsWith('image/') || IMAGE_EXT.test(name);
+  const isAudio = mime.startsWith('audio/') || AUDIO_EXT.test(name);
+
+  if (isAudio && !isVideo && !isImage) {
     uploadPrompt.classList.add('hidden');
     sourceMode = 'audio_only';
     sourceLoading = false;
@@ -1659,7 +1670,7 @@ async function loadSourceFile(file) {
     return;
   }
 
-  if (VIDEO_EXT.test(name)) {
+  if (isVideo) {
     uploadPrompt.classList.add('hidden');
     sourceMode = 'video';
     sourceObjectUrl = URL.createObjectURL(file);
@@ -1670,7 +1681,7 @@ async function loadSourceFile(file) {
     return;
   }
 
-  if (IMAGE_EXT.test(name)) {
+  if (isImage) {
     uploadPrompt.classList.add('hidden');
     sourceMode = 'image';
     sourceObjectUrl = URL.createObjectURL(file);
@@ -1694,7 +1705,6 @@ async function loadSourceFile(file) {
     sourceNaturalW = img.naturalWidth || 0;
     sourceNaturalH = img.naturalHeight || 0;
     audioPlaying = false;
-    audioSync = null;
     sourceLoading = false;
     syncPlayPauseButton();
     updateSourceStatus();
@@ -1716,12 +1726,7 @@ async function initAudio(file) {
   });
 
   await audioAnalyzer.play(file, { autoplay: true, volume: 1.0 });
-  audioSync = new AudioSync(audioAnalyzer, { holdMs: 100 });
   audioPlaying = true;
-
-  const nowBands = audioAnalyzer.getBands();
-  const nowAmp = audioAnalyzer.getAmplitude();
-  void bandsToViseme({ ...nowBands, amplitude: nowAmp });
 }
 
 // ── Dev controls ────────────────────────────────────────────────────────────
@@ -1810,31 +1815,45 @@ glowSlider?.addEventListener('input', () => {
   const gv = document.getElementById('glowVal');
   if (gv) gv.textContent = glowSlider.value + '%';
 });
-// Tabbed panel UI (pure UI wiring; does not change existing control logic)
+// Sidebar + floating icon strip UI
 (() => {
-  const dock = document.getElementById('devDock');
-  const collapseBtn = document.getElementById('devCollapseBtn');
-  const tabs = Array.from(document.querySelectorAll('.dev-tab'));
-  const panels = Array.from(document.querySelectorAll('.dev-tabContent'));
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const closeBtn = document.getElementById('sidebarClose');
+  const icons = Array.from(document.querySelectorAll('.float-icon'));
+  const sections = Array.from(document.querySelectorAll('.sidebar-section'));
+  let openSection = null;
 
-  function setTab(key) {
-    tabs.forEach((t) => {
-      const on = t.getAttribute('data-tab') === key;
-      t.classList.toggle('active', on);
-      t.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-    panels.forEach((p) => p.classList.toggle('active', p.getAttribute('data-tab-content') === key));
+  function openSidebar(section) {
+    openSection = section;
+    sections.forEach((s) => s.classList.toggle('active', s.getAttribute('data-section') === section));
+    icons.forEach((ic) => ic.classList.toggle('active', ic.getAttribute('data-section') === section));
+    sidebar?.classList.add('open');
+    sidebar?.setAttribute('aria-hidden', 'false');
+    backdrop?.classList.add('visible');
   }
 
-  tabs.forEach((t) => t.addEventListener('click', () => setTab(t.getAttribute('data-tab'))));
-  collapseBtn?.addEventListener('click', () => dock?.classList.toggle('collapsed'));
-
-  if (window.innerWidth < 768 || window.innerHeight < 600) {
-    dock?.classList.add('collapsed');
+  function closeSidebar() {
+    openSection = null;
+    sidebar?.classList.remove('open');
+    sidebar?.setAttribute('aria-hidden', 'true');
+    backdrop?.classList.remove('visible');
+    icons.forEach((ic) => ic.classList.remove('active'));
   }
 
-  // Default open tab: SHADER
-  setTab('shader');
+  function toggleSection(section) {
+    if (openSection === section && sidebar?.classList.contains('open')) {
+      closeSidebar();
+    } else {
+      openSidebar(section);
+    }
+  }
+
+  icons.forEach((ic) => {
+    ic.addEventListener('click', () => toggleSection(ic.getAttribute('data-section')));
+  });
+  closeBtn?.addEventListener('click', () => closeSidebar());
+  backdrop?.addEventListener('click', () => closeSidebar());
 })();
 
 // Broadcast tab wiring (simple DOM-only behavior)
@@ -2183,7 +2202,6 @@ btnLoop.addEventListener('click', () => {
       resetSeekToStart();
       sourceVideo.play().then(() => {
         audioPlaying = true;
-        if (videoBridge) videoBridge.resume().catch(() => {});
         syncPlayPauseButton();
         updateSourceStatus();
       }).catch(() => {});
@@ -2203,7 +2221,6 @@ btnPlayPause?.addEventListener('click', async () => {
     }
     try {
       await sourceVideo.play();
-      if (videoBridge) await videoBridge.resume();
       audioPlaying = true;
     } catch (e) {
       console.warn('[victoria-engine] video.play()', e);
@@ -2234,9 +2251,6 @@ document.querySelectorAll('#speedRow .speed-btn').forEach((btn) => {
 const seekBar = document.getElementById('seekBar');
 function endSeekDrag() {
   isSeeking = false;
-  if (videoBridge && sourceVideo && !sourceVideo.paused && !sourceVideo.ended) {
-    videoBridge.resume().catch(() => {});
-  }
 }
 seekBar?.addEventListener('mousedown', () => { isSeeking = true; });
 seekBar?.addEventListener('touchstart', () => { isSeeking = true; }, { passive: true });
@@ -2271,21 +2285,6 @@ seekBar?.addEventListener('input', () => {
   if (gv) gv.textContent = `${Math.round(glowStrength * 100)}%`;
   if (glowSlider) glowSlider.value = String(Math.round(glowStrength * 100));
 })();
-
-// ── Drag & drop ───────────────────────────────────────────────────────────────
-['dragenter', 'dragover'].forEach((ev) => {
-  wrap.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); wrap.classList.add('dragover'); });
-});
-wrap.addEventListener('dragleave', (e) => {
-  e.preventDefault();
-  if (e.target === wrap) wrap.classList.remove('dragover');
-});
-wrap.addEventListener('drop', (e) => {
-  e.preventDefault();
-  wrap.classList.remove('dragover');
-  const f = e.dataTransfer?.files?.[0];
-  if (f) loadSourceFile(f);
-});
 
 // ── Char layer WebGL2 pipeline ──────────────────────────────────────────────
 glChar = charCanvas.getContext('webgl2', { premultipliedAlpha: false, alpha: true });
@@ -3341,83 +3340,6 @@ if (!glChar) {
 
 console.log('[victoria-engine] Starting render loop');
 requestAnimationFrame(frame);
-
-// ── Headless WS bridge ──────────────────────────────────────────────────────
-if (window.__VICTORIA_HEADLESS__) {
-  const ws = new WebSocket(`ws://localhost:${window.__VICTORIA_WS_PORT__}`);
-  ws.onopen = () => ws.send(JSON.stringify({ type: 'READY' }));
-
-  let progressTimer = null;
-  let safetyTimer = null;
-  let finishing = false;
-
-  async function finishAndSend(durationSecs) {
-    if (finishing) return;
-    finishing = true;
-
-    try {
-      if (progressTimer) clearInterval(progressTimer);
-      if (safetyTimer) clearTimeout(safetyTimer);
-
-      if (!recorder) recorder = new CanvasRecorder(compositeCanvas, { fps: 30 });
-      const blob = await recorder.stop();
-      setRecordingUI(false);
-
-      const buf = await blob.arrayBuffer();
-      const u8 = new Uint8Array(buf);
-      const CHUNK = 1024 * 1024;
-
-      for (let off = 0; off < u8.length; off += CHUNK) {
-        ws.send(u8.slice(off, Math.min(u8.length, off + CHUNK)));
-      }
-
-      ws.send(JSON.stringify({ type: 'COMPLETE' }));
-    } catch (e) {
-      ws.send(JSON.stringify({ type: 'ERROR', message: String(e?.message || e) }));
-    }
-  }
-
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'RENDER') {
-      console.log('[victoria-engine] Headless render command received');
-
-      const durationSecs = msg.duration || 90;
-      finishing = false;
-
-      if (!audioAnalyzer) {
-        audioAnalyzer = new AudioAnalyzer({
-          fftSize: 256,
-          onEnded: () => finishAndSend(durationSecs),
-        });
-      } else {
-        audioAnalyzer.onEnded = () => finishAndSend(durationSecs);
-      }
-
-      if (!audioSync) audioSync = new AudioSync(audioAnalyzer, { holdMs: 100 });
-
-      if (!recorder) recorder = new CanvasRecorder(compositeCanvas, { fps: 30 });
-      recorder.start();
-      setRecordingUI(true);
-
-      if (progressTimer) clearInterval(progressTimer);
-      progressTimer = setInterval(() => {
-        const elapsed = recorder.getElapsed();
-        const pct = Math.max(0, Math.min(100, (elapsed / durationSecs) * 100));
-        ws.send(JSON.stringify({ type: 'PROGRESS', percent: pct }));
-      }, 500);
-
-      if (safetyTimer) clearTimeout(safetyTimer);
-      safetyTimer = setTimeout(() => finishAndSend(durationSecs), durationSecs * 1000 + 250);
-
-      audioAnalyzer.play(msg.audioUrl, { autoplay: true, volume: 1.0 }).then(() => {
-        audioPlaying = true;
-      }).catch((err) => {
-        ws.send(JSON.stringify({ type: 'ERROR', message: String(err?.message || err) }));
-      });
-    }
-  };
-}
 
 </script>
 </body>
