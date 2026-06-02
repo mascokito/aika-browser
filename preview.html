@@ -115,8 +115,6 @@
 
   #canvasWrap {
     position: relative;
-    width: auto;
-    height: auto;
     max-width: 100%;
     max-height: 100%;
     aspect-ratio: 16 / 9;
@@ -1141,41 +1139,74 @@ const uploadPrompt = document.getElementById('uploadPrompt');
 
 /** Set after getContext; avoids TDZ if resize runs before char pipeline init. */
 let glChar = null;
+let isInitializing = false;
 
 function resizeCanvases() {
-  if (!wrap) return;
-  const w = wrap.clientWidth;
-  const h = wrap.clientHeight;
+  if (isInitializing || !wrap) return;
+
+  const stage = document.getElementById('stage');
+  if (!stage) return;
+  const stageW = stage.clientWidth;
+  const stageH = stage.clientHeight;
+  if (stageW === 0 || stageH === 0) return;
+
+  let w, h;
+  if (stageW / stageH > 16 / 9) {
+    h = stageH;
+    w = h * (16 / 9);
+  } else {
+    w = stageW;
+    h = w * (9 / 16);
+  }
+  w = Math.floor(w);
+  h = Math.floor(h);
   if (w === 0 || h === 0) return;
+
+  wrap.style.width = `${w}px`;
+  wrap.style.height = `${h}px`;
+
+  if (bgCanvas.width === w && bgCanvas.height === h) return;
+
   for (const c of [bgCanvas, charCanvas]) {
-    c.width  = w;
+    c.width = w;
     c.height = h;
   }
-  if (glChar) resizeCharPipeline(w, h);
+
+  isInitializing = true;
+  if (glBg) initBgShader();
+  if (glChar) {
+    texW = 0;
+    texH = 0;
+    initCharPipeline();
+    resizeCharPipeline(w, h);
+  }
+  isInitializing = false;
 }
 
-resizeCanvases();
-requestAnimationFrame(() => resizeCanvases());
-
-const canvasObserver = new ResizeObserver(() => {
+function startCanvasSizing() {
   resizeCanvases();
-});
-canvasObserver.observe(wrap);
-const stageEl = document.getElementById('stage');
-const mainAreaEl = document.getElementById('mainArea');
-if (stageEl) canvasObserver.observe(stageEl);
-if (mainAreaEl) canvasObserver.observe(mainAreaEl);
+  requestAnimationFrame(() => resizeCanvases());
 
-window.addEventListener('orientationchange', () => {
-  setTimeout(() => resizeCanvases(), 500);
-});
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => resizeCanvases(), 100);
+  const canvasObserver = new ResizeObserver(() => {
+    resizeCanvases();
   });
-} else {
-  setTimeout(() => resizeCanvases(), 100);
+  canvasObserver.observe(wrap);
+  const stageEl = document.getElementById('stage');
+  const mainAreaEl = document.getElementById('mainArea');
+  if (stageEl) canvasObserver.observe(stageEl);
+  if (mainAreaEl) canvasObserver.observe(mainAreaEl);
+
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => resizeCanvases(), 500);
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => resizeCanvases(), 100);
+    });
+  } else {
+    setTimeout(() => resizeCanvases(), 100);
+  }
 }
 
 // ── WebGL2 background (unchanged) ───────────────────────────────────────────
@@ -1269,6 +1300,7 @@ function linkProgram(gl, vs, fs) {
 }
 
 function initBgShader() {
+  if (!glBg) return;
   const vs = compileShader(glBg, glBg.VERTEX_SHADER, BG_VERT);
   const fs = compileShader(glBg, glBg.FRAGMENT_SHADER, BG_FRAG);
   bgProgram = linkProgram(glBg, vs, fs);
@@ -3371,6 +3403,8 @@ if (!glChar) {
 } else {
   initCharPipeline();
 }
+
+startCanvasSizing();
 
 console.log('[victoria-engine] Starting render loop');
 requestAnimationFrame(frame);
