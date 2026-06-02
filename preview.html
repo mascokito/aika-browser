@@ -35,6 +35,8 @@
   #shell {
     width: 100vw;
     height: 100vh;
+    min-height: 100vh;
+    min-height: 100dvh;
     display: grid;
     grid-template-rows: auto 1fr auto;
     grid-template-columns: 1fr;
@@ -86,6 +88,7 @@
     justify-content: center;
     position: relative;
     overflow: hidden;
+    min-height: 0;
     background: var(--bg-deep);
   }
 
@@ -110,7 +113,10 @@
 
   #canvasWrap {
     position: relative;
-    width: min(100%, calc(100vh * 16/9));
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
     aspect-ratio: 16 / 9;
   }
 
@@ -295,6 +301,7 @@
   #devDock {
     position: relative;
     background: transparent;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   #seekRow {
@@ -429,8 +436,8 @@
     font-size: 10px;
     letter-spacing: 0.1em;
     color: var(--parchment-dim);
-    overflow: hidden;
-    max-height: 220px;
+    overflow-y: auto;
+    max-height: min(220px, 35vh);
     transition: max-height 220ms ease, opacity 220ms ease, transform 220ms ease;
     transform-origin: bottom;
   }
@@ -536,6 +543,62 @@
     letter-spacing: 0.1em;
     color: var(--parchment-dim);
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .live-tab-panel {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .live-tab-desc {
+    font-size: 9px;
+    color: var(--parchment-dim);
+    letter-spacing: 0.08em;
+    line-height: 1.4;
+  }
+
+  .live-tab-note {
+    font-size: 8px;
+    color: var(--parchment-dim);
+    opacity: 0.75;
+    letter-spacing: 0.06em;
+    line-height: 1.35;
+    max-width: 420px;
+  }
+
+  #liveUrlInput {
+    flex: 1;
+    min-width: 200px;
+    background: var(--bg-mid);
+    color: var(--parchment);
+    border: 1px solid var(--viridian);
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 9px;
+  }
+
+  #liveUrlStatus {
+    display: none;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--viridian-glow);
+  }
+
+  #liveUrlStatus.visible {
+    display: block;
+  }
+
+  #liveUrlStatus.error {
+    color: var(--red-alert);
+  }
+
+  @media (max-height: 700px) {
+    #devPanel { max-height: min(160px, 28vh); }
+    #devBar { padding: 4px 12px; }
+    #topbar { padding: 4px 12px; }
   }
 
   .ctrl-group {
@@ -716,6 +779,7 @@
           <button class="dev-tab active" role="tab" aria-selected="true" data-tab="shader">Shader</button>
           <button class="dev-tab" role="tab" aria-selected="false" data-tab="color">Color</button>
           <button class="dev-tab" role="tab" aria-selected="false" data-tab="overlay">Overlay</button>
+          <button class="dev-tab" role="tab" aria-selected="false" data-tab="live">Live</button>
           <button class="dev-tab" role="tab" aria-selected="false" data-tab="broadcast">Broadcast</button>
         </div>
         <button class="btn" id="devCollapseBtn" type="button" title="Collapse/expand panel" aria-label="Collapse/expand panel">
@@ -823,6 +887,20 @@
           <input type="range" id="pixelSortThresh" min="0" max="100" value="50" step="1">
           <span id="pixelSortThreshVal">50%</span>
         </div>
+      </div>
+
+      <!-- LIVE TAB -->
+      <div class="dev-tabContent live-tab-panel" data-tab-content="live" role="tabpanel">
+        <div class="ctrl-group" style="flex-direction:column;align-items:flex-start;gap:4px;">
+          <label>LIVE SOURCE</label>
+          <span class="live-tab-desc">Load a direct video URL to use as source</span>
+        </div>
+        <div class="ctrl-group" style="width:100%;max-width:520px;">
+          <input id="liveUrlInput" type="url" placeholder="https://example.com/video.mp4" autocomplete="off">
+          <button class="btn" id="btnLoadUrl" type="button">LOAD</button>
+        </div>
+        <p class="live-tab-note">Supports direct MP4/WebM URLs only. YouTube and streaming URLs are not supported.</p>
+        <span id="liveUrlStatus" role="status" aria-live="polite"></span>
       </div>
 
       <!-- BROADCAST TAB -->
@@ -1409,6 +1487,118 @@ const VIDEO_EXT = /\.(mp4|webm|mov)$/i;
 const IMAGE_EXT = /\.(jpe?g|png)$/i;
 const AUDIO_EXT = /\.(wav|mp3|ogg)$/i;
 
+function setLiveUrlStatus(message, isError = false) {
+  const el = document.getElementById('liveUrlStatus');
+  if (!el) return;
+  if (!message) {
+    el.textContent = '';
+    el.classList.remove('visible', 'error');
+    return;
+  }
+  el.textContent = message;
+  el.classList.add('visible');
+  el.classList.toggle('error', isError);
+}
+
+function wireVideoSource(v) {
+  v.loop = loopEnabled;
+  v.autoplay = false;
+  v.muted = false;
+  v.playsInline = true;
+  v.setAttribute('playsinline', '');
+  v.crossOrigin = 'anonymous';
+  resetPlaybackSpeed();
+  sourceVideo = v;
+  v.playbackRate = playbackSpeed;
+  v.volume = sourceVolumePercent / 100;
+  try { v.pause(); } catch {}
+  v.addEventListener('loadedmetadata', () => {
+    sourceNaturalW = v.videoWidth || 0;
+    sourceNaturalH = v.videoHeight || 0;
+    try { v.pause(); } catch {}
+    initSeekFromMetadata();
+    updateSourceStatus();
+  });
+  v.addEventListener('timeupdate', () => {
+    syncSeekUIFromVideo();
+  });
+  v.addEventListener('loadeddata', () => {
+    try { v.pause(); } catch {}
+    syncPlayPauseButton();
+  });
+  v.addEventListener('play', () => {
+    syncPlayPauseButton();
+    updateSourceStatus();
+  });
+  v.addEventListener('pause', () => {
+    syncPlayPauseButton();
+    updateSourceStatus();
+  });
+  v.addEventListener('ended', () => {
+    videoPlaybackComplete = true;
+    audioPlaying = false;
+    syncSeekUIFromVideo();
+    syncPlayPauseButton();
+    updateSourceStatus();
+  });
+  videoBridge = new VideoAudioBridge(v);
+  audioSync = new AudioSync(videoBridge, { holdMs: 100 });
+  audioPlaying = false;
+  syncPlayPauseButton();
+  updateSourceStatus();
+}
+
+function loadLiveUrl(rawUrl) {
+  const url = (rawUrl || '').trim();
+  if (!url) return;
+
+  setLiveUrlStatus('⟳ Loading...', false);
+  clearSource();
+  sourceLoading = true;
+  videoPlaybackComplete = false;
+  try {
+    sourceFileLabel = new URL(url).hostname || 'URL';
+  } catch {
+    sourceFileLabel = 'URL';
+  }
+  updateSourceStatus();
+  uploadPrompt.classList.add('hidden');
+  sourceMode = 'video';
+
+  const v = document.createElement('video');
+  wireVideoSource(v);
+  v.src = url;
+
+  v.addEventListener('error', () => {
+    sourceLoading = false;
+    sourceMode = 'none';
+    sourceVideo = null;
+    if (videoBridge) {
+      videoBridge.dispose();
+      videoBridge = null;
+    }
+    audioSync = null;
+    setLiveUrlStatus('Could not load video. Check URL and CORS policy.', true);
+    uploadPrompt.classList.remove('hidden');
+    hideSeekRow();
+    syncPlayPauseButton();
+    updateSourceStatus();
+  }, { once: true });
+
+  v.addEventListener('loadedmetadata', () => {
+    sourceLoading = false;
+    setLiveUrlStatus('● LIVE URL — playing', false);
+    updateSourceStatus();
+  }, { once: true });
+
+  sourceLoading = false;
+  syncPlayPauseButton();
+  updateSourceStatus();
+  try { v.load(); } catch (e) {
+    setLiveUrlStatus('Could not load video. Check URL and CORS policy.', true);
+  }
+}
+
 async function loadSourceFile(file) {
   if (!file) return;
   const name = file.name || '';
@@ -1432,53 +1622,9 @@ async function loadSourceFile(file) {
     sourceMode = 'video';
     sourceObjectUrl = URL.createObjectURL(file);
     const v = document.createElement('video');
-    v.loop = loopEnabled;
-    v.autoplay = false;
-    v.muted = false;
-    v.playsInline = true;
-    v.setAttribute('playsinline', '');
-    v.crossOrigin = 'anonymous';
+    wireVideoSource(v);
     v.src = sourceObjectUrl;
-    resetPlaybackSpeed();
-    sourceVideo = v;
-    v.playbackRate = playbackSpeed;
-    v.volume = sourceVolumePercent / 100;
-    try { v.pause(); } catch {}
-    v.addEventListener('loadedmetadata', () => {
-      sourceNaturalW = v.videoWidth || 0;
-      sourceNaturalH = v.videoHeight || 0;
-      try { v.pause(); } catch {}
-      initSeekFromMetadata();
-      updateSourceStatus();
-    });
-    v.addEventListener('timeupdate', () => {
-      syncSeekUIFromVideo();
-    });
-    v.addEventListener('loadeddata', () => {
-      try { v.pause(); } catch {}
-      syncPlayPauseButton();
-    });
-    v.addEventListener('play', () => {
-      syncPlayPauseButton();
-      updateSourceStatus();
-    });
-    v.addEventListener('pause', () => {
-      syncPlayPauseButton();
-      updateSourceStatus();
-    });
-    v.addEventListener('ended', () => {
-      videoPlaybackComplete = true;
-      audioPlaying = false;
-      syncSeekUIFromVideo();
-      syncPlayPauseButton();
-      updateSourceStatus();
-    });
-    videoBridge = new VideoAudioBridge(v);
-    audioSync = new AudioSync(videoBridge, { holdMs: 100 });
-    audioPlaying = false;
     sourceLoading = false;
-    syncPlayPauseButton();
-    updateSourceStatus();
     return;
   }
 
@@ -1640,6 +1786,10 @@ glowSlider?.addEventListener('input', () => {
 
   tabs.forEach((t) => t.addEventListener('click', () => setTab(t.getAttribute('data-tab'))));
   collapseBtn?.addEventListener('click', () => dock?.classList.toggle('collapsed'));
+
+  if (window.innerWidth < 768 || window.innerHeight < 600) {
+    dock?.classList.add('collapsed');
+  }
 
   // Default open tab: SHADER
   setTab('shader');
@@ -1953,6 +2103,14 @@ glowSlider?.addEventListener('input', () => {
 document.getElementById('sourceFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) loadSourceFile(file);
+});
+
+document.getElementById('btnLoadUrl')?.addEventListener('click', () => {
+  loadLiveUrl(document.getElementById('liveUrlInput')?.value);
+});
+
+document.getElementById('liveUrlInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') loadLiveUrl(e.currentTarget.value);
 });
 
 const btnLoop = document.getElementById('btnLoop');
