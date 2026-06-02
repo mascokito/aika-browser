@@ -5,7 +5,7 @@
   "main": "runtime.js",
   "type": "module",
   "scripts": {
-    "start": "node runtime.js",
+    "start": "npx serve . -p ${PORT:-3000} -s",
     "preview": "npx serve . -p 3000",
     "dev": "npx serve . -p 3000",
     "render": "node runtime.js --audio ./assets/sample.wav --output ./output/bulletin.mp4"
