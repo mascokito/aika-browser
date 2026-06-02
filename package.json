@@ -1,0 +1,33 @@
+{
+  "name": "victoria-engine",
+  "version": "0.1.0",
+  "description": "2D character rendering engine for Victoria Rois — synthetic AI news anchor",
+  "main": "runtime.js",
+  "type": "module",
+  "scripts": {
+    "start": "node runtime.js",
+    "preview": "npx serve . -p 3000",
+    "dev": "npx serve . -p 3000",
+    "render": "node runtime.js --audio ./assets/sample.wav --output ./output/bulletin.mp4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "puppeteer": "^22.0.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "minimist": "^1.2.8",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "serve": "^14.2.3"
+  },
+  "keywords": [
+    "webgl",
+    "character-renderer",
+    "lip-sync",
+    "ascii-shader",
+    "synthetic-anchor"
+  ],
+  "license": "MIT"
+}
