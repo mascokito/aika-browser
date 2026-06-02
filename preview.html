@@ -672,8 +672,14 @@
     letter-spacing: 0.08em;
     color: var(--parchment-dim);
     flex-wrap: nowrap;
-    overflow: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     z-index: 30;
+  }
+
+  #transportStrip::-webkit-scrollbar {
+    display: none;
   }
 
   .transport-file-btn {
@@ -1113,8 +1119,6 @@
 <script type="module">
 
 import AudioAnalyzer from './audio/analyzer.js';
-import { bandsToViseme } from './audio/phoneme.js';
-import AudioSync from './audio/sync.js';
 import BlinkController from './animation/blink.js';
 import IdleController from './animation/idle.js';
 import ExpressionController from './animation/expression.js';
@@ -1738,12 +1742,12 @@ function updatePaletteUi() {
 }
 
 window.toggleThermal = function() {
-  paletteMode = 1;
+  paletteMode = paletteMode === 1 ? 0 : 1;
   updatePaletteUi();
 };
 
 window.toggleNightVision = function() {
-  paletteMode = 2;
+  paletteMode = paletteMode === 2 ? 0 : 2;
   updatePaletteUi();
 };
 
