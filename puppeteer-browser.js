@@ -1,0 +1,227 @@
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import puppeteer from 'puppeteer-core';
+
+const LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--no-first-run',
+  '--no-zygote',
+  '--single-process',
+];
+
+const NAV_TIMEOUT_MS = 15_000;
+const VIDEO_WAIT_MS = 5_000;
+
+const ALLOWED_RESOURCE_TYPES = new Set([
+  'document',
+  'script',
+  'xhr',
+  'fetch',
+  'websocket',
+]);
+
+let browser = null;
+let browserLaunching = null;
+let lastLaunchError = null;
+let lastLaunchAt = null;
+let relaunchScheduled = false;
+
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+  'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+];
+
+function pickUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function findChromiumPath() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ].filter(Boolean);
+
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const whichCmds =
+    process.platform === 'win32'
+      ? ['where chromium', 'where chromium-browser', 'where chrome']
+      : ['which chromium', 'which chromium-browser', 'which google-chrome'];
+
+  for (const cmd of whichCmds) {
+    try {
+      const out = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] })
+        .trim()
+        .split(/\r?\n/)[0]
+        ?.trim();
+      if (out && fs.existsSync(out)) return out;
+    } catch {
+      /* not found */
+    }
+  }
+
+  return null;
+}
+
+function buildPageHeaders(req) {
+  const headers = {
+    'User-Agent': pickUserAgent(),
+    Accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+    'Upgrade-Insecure-Requests': '1',
+    DNT: '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+  };
+
+  if (req?.headers?.cookie) {
+    headers.Cookie = req.headers.cookie;
+  }
+
+  return headers;
+}
+
+function scheduleRelaunch() {
+  if (relaunchScheduled) return;
+  relaunchScheduled = true;
+  browser = null;
+  setTimeout(() => {
+    relaunchScheduled = false;
+    initPuppeteerBrowser().catch((err) => {
+      console.error('[puppeteer] Relaunch failed:', err.message);
+    });
+  }, 500);
+}
+
+function attachBrowserHandlers(instance) {
+  instance.on('disconnected', () => {
+    console.warn('[puppeteer] Browser disconnected');
+    browser = null;
+    scheduleRelaunch();
+  });
+}
+
+async function launchBrowser() {
+  const executablePath = findChromiumPath();
+  if (!executablePath) {
+    throw new Error(
+      'Chromium executable not found (set PUPPETEER_EXECUTABLE_PATH or install chromium)'
+    );
+  }
+
+  const instance = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    args: LAUNCH_ARGS,
+    ignoreHTTPSErrors: true,
+  });
+
+  attachBrowserHandlers(instance);
+  browser = instance;
+  lastLaunchError = null;
+  lastLaunchAt = new Date().toISOString();
+  console.log(`[puppeteer] Browser launched (${executablePath})`);
+  return instance;
+}
+
+export async function initPuppeteerBrowser() {
+  if (browser?.isConnected()) return browser;
+  if (browserLaunching) return browserLaunching;
+
+  browserLaunching = launchBrowser()
+    .catch((err) => {
+      lastLaunchError = err.message;
+      browser = null;
+      throw err;
+    })
+    .finally(() => {
+      browserLaunching = null;
+    });
+
+  return browserLaunching;
+}
+
+export async function getBrowser() {
+  if (browser?.isConnected()) return browser;
+  return initPuppeteerBrowser();
+}
+
+export function getPuppeteerHealth() {
+  const connected = Boolean(browser?.isConnected());
+  return {
+    puppeteer: {
+      connected,
+      launching: Boolean(browserLaunching),
+      chromiumPath: findChromiumPath(),
+      lastLaunchAt,
+      lastLaunchError,
+    },
+  };
+}
+
+export async function closePuppeteerBrowser() {
+  if (!browser) return;
+  try {
+    await browser.close();
+  } catch (err) {
+    console.warn('[puppeteer] close error:', err.message);
+  }
+  browser = null;
+}
+
+/**
+ * Render a URL to fully-hydrated HTML via headless Chromium.
+ * @throws on navigation/render failure (caller should fall back to fetch)
+ */
+export async function renderHtmlWithPuppeteer(targetUrl, req) {
+  const instance = await getBrowser();
+  const page = await instance.newPage();
+
+  try {
+    await page.setExtraHTTPHeaders(buildPageHeaders(req));
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const type = request.resourceType();
+      if (ALLOWED_RESOURCE_TYPES.has(type)) {
+        request.continue();
+      } else {
+        request.abort();
+      }
+    });
+
+    await page.goto(targetUrl, {
+      waitUntil: 'networkidle2',
+      timeout: NAV_TIMEOUT_MS,
+    });
+
+    await page
+      .waitForSelector('video', { timeout: VIDEO_WAIT_MS })
+      .catch(() => {});
+
+    return await page.content();
+  } finally {
+    await page.close().catch(() => {});
+  }
+}

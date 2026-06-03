@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { renderHtmlWithPuppeteer } from './puppeteer-browser.js';
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -311,6 +312,68 @@ function isCssResponse(contentType, targetUrl) {
   }
 }
 
+function sendHtmlProxyResponse(res, html, { upstream = null, render = 'puppeteer' } = {}) {
+  const buffer = Buffer.from(html, 'utf8');
+  const base = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': buffer.length,
+    'Access-Control-Allow-Origin': '*',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Victoria-Render': render,
+  };
+  const headers = upstream ? mergeResponseHeaders(base, upstream) : base;
+  if (res.headersSent) return;
+  res.writeHead(200, headers);
+  res.end(buffer);
+}
+
+async function fetchHtmlDocument(targetUrl, signal, req) {
+  const upstream = await fetchWithRedirects(targetUrl, signal, req);
+  const contentType = upstream.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('text/html')) {
+    const err = new Error(`Expected HTML, got ${contentType || 'unknown'}`);
+    err.upstream = upstream;
+    throw err;
+  }
+  const body = await upstream.text();
+  return { body, upstream };
+}
+
+async function proxyHtmlDocument(targetUrl, req, res) {
+  const kind = classifyRequest(targetUrl);
+  if (kind === 'document') {
+    try {
+      const html = await renderHtmlWithPuppeteer(targetUrl, req);
+      const modified = rewriteHtml(html, targetUrl);
+      return sendHtmlProxyResponse(res, modified, { render: 'puppeteer' });
+    } catch (puppeteerErr) {
+      console.warn('[proxy] Puppeteer failed, falling back to fetch:', puppeteerErr.message);
+    }
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const { body, upstream } = await fetchHtmlDocument(targetUrl, controller.signal, req);
+    const modified = rewriteHtml(body, targetUrl);
+    const headers = mergeResponseHeaders(
+      {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': Buffer.byteLength(modified, 'utf8'),
+        'Access-Control-Allow-Origin': '*',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Victoria-Render': 'fetch',
+      },
+      upstream
+    );
+    if (res.headersSent) return;
+    res.writeHead(200, headers);
+    res.end(modified, 'utf8');
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function handleProxy(req, res) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -325,6 +388,11 @@ export async function handleProxy(req, res) {
       );
     }
 
+    const kind = classifyRequest(targetUrl);
+    if (kind === 'document') {
+      return proxyHtmlDocument(targetUrl, req, res);
+    }
+
     const upstream = await fetchWithRedirects(targetUrl, controller.signal, req);
     const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
     const ctLower = contentType.toLowerCase();
@@ -332,20 +400,7 @@ export async function handleProxy(req, res) {
     if (ctLower.includes('text/html')) {
       const body = await upstream.text();
       const modified = rewriteHtml(body, targetUrl);
-      const buffer = Buffer.from(modified, 'utf8');
-      const headers = mergeResponseHeaders(
-        {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Content-Length': buffer.length,
-          'Access-Control-Allow-Origin': '*',
-          'X-Content-Type-Options': 'nosniff',
-        },
-        upstream
-      );
-      if (res.headersSent) return;
-      res.writeHead(200, headers);
-      res.end(buffer);
-      return;
+      return sendHtmlProxyResponse(res, modified, { upstream, render: 'fetch' });
     }
 
     if (isCssResponse(contentType, targetUrl)) {
