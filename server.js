@@ -1,6 +1,7 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { handleProxy } from './proxy.js';
 
 const PORT = process.env.PORT || 3000;
 
@@ -20,8 +21,18 @@ const MIME_TYPES = {
   '.ico':  'image/x-icon',
 };
 
-const server = http.createServer((req, res) => {
-  let filePath = '.' + req.url;
+const server = http.createServer(async (req, res) => {
+  res.on('error', (err) => {
+    console.error('Response error:', err.message);
+  });
+
+  const pathname = req.url?.split('?')[0] || req.url;
+
+  if (pathname.startsWith('/proxy')) {
+    return handleProxy(req, res);
+  }
+
+  let filePath = '.' + pathname;
   if (filePath === './') filePath = './preview.html';
 
   const ext = path.extname(filePath).toLowerCase();

@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Victoria Engine — Browser</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Cinzel:wght@400;700&display=swap');
+
+  :root {
+    --viridian:      #2E7D6B;
+    --viridian-dim:  #1D5248;
+    --viridian-glow: #3FA88E;
+    --midnight:      #1B3A6B;
+    --bg-deep:       #1A1A2E;
+    --bg-mid:        #12121F;
+    --gold:          #B8963E;
+    --gold-bright:   #D4AE57;
+    --parchment:     #E8E4DC;
+    --parchment-dim: #A89F93;
+    --transport-h:   56px;
+    --nav-h:         50px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-deep);
+    color: var(--parchment);
+    font-family: 'Share Tech Mono', monospace;
+    overflow: hidden;
+  }
+
+  #shell {
+    display: grid;
+    grid-template-rows: var(--nav-h) 1fr var(--transport-h);
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  #navBar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    background: var(--bg-mid);
+    border-bottom: 1px solid var(--viridian);
+    min-height: var(--nav-h);
+  }
+
+  #navBar .btn-nav {
+    flex-shrink: 0;
+    min-width: 40px;
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  #addressBar {
+    flex: 1;
+    min-width: 0;
+    min-height: 36px;
+    background: var(--bg-deep);
+    color: var(--parchment);
+    border: 1px solid var(--viridian-dim);
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  #addressBar:focus {
+    border-color: var(--viridian-glow);
+    box-shadow: 0 0 0 1px rgba(63, 168, 142, 0.25);
+  }
+
+  #btnGo {
+    flex-shrink: 0;
+    min-height: 36px;
+    padding: 6px 14px;
+  }
+
+  #mainArea {
+    position: relative;
+    min-height: 0;
+    background: var(--bg-deep);
+  }
+
+  #browserFrame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #000;
+    display: block;
+  }
+
+  #controlsBar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: var(--transport-h);
+    min-height: var(--transport-h);
+    padding: 0 12px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg-mid);
+    border-top: 1px solid var(--viridian);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    color: var(--parchment-dim);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  #controlsBar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .btn {
+    background: none;
+    border: 1px solid var(--viridian);
+    color: var(--viridian-glow);
+    padding: 6px 10px;
+    min-height: 36px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .btn:hover {
+    background: var(--viridian);
+    color: var(--bg-deep);
+  }
+
+  .btn.active {
+    background: var(--viridian);
+    color: var(--bg-deep);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .ctrl-label {
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    color: var(--parchment-dim);
+    text-transform: uppercase;
+  }
+
+  .ctrl-val {
+    font-size: 9px;
+    color: var(--viridian-glow);
+    min-width: 24px;
+  }
+
+  input[type=range].ctrl-range {
+    width: 56px;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 3px;
+    background: var(--bg-deep);
+    accent-color: var(--viridian-glow);
+  }
+
+  input[type=range].ctrl-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--viridian-glow);
+    border: 2px solid var(--viridian);
+    margin-top: -6px;
+  }
+
+  input[type=range].ctrl-range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+  }
+
+  .speed-btns {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .speed-btns .btn {
+    min-width: 36px;
+    padding: 6px 6px;
+  }
+</style>
+</head>
+<body>
+
+<div id="shell">
+  <div id="navBar" aria-label="Browser navigation">
+    <button type="button" class="btn btn-nav" id="btnBack" title="Back" aria-label="Back">←</button>
+    <button type="button" class="btn btn-nav" id="btnForward" title="Forward" aria-label="Forward">→</button>
+    <button type="button" class="btn btn-nav" id="btnRefresh" title="Refresh" aria-label="Refresh">↺</button>
+    <input type="url" id="addressBar" placeholder="https://example.com" autocomplete="off" spellcheck="false">
+    <button type="button" class="btn" id="btnGo">GO</button>
+  </div>
+
+  <div id="mainArea">
+    <iframe id="browserFrame" title="Proxied page" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+  </div>
+
+  <div id="controlsBar" aria-label="Engine controls">
+    <button type="button" class="btn active" id="btnAscii">ASCII ON</button>
+    <div class="ctrl-group">
+      <span class="ctrl-label">SIZE</span>
+      <input type="range" id="sizeSlider" class="ctrl-range" min="4" max="20" value="8" step="1" aria-label="Cell size">
+      <span class="ctrl-val" id="sizeVal">8</span>
+    </div>
+    <button type="button" class="btn" id="btnColor">VIRIDIAN</button>
+    <div class="ctrl-group">
+      <span class="ctrl-label">BRIGHT</span>
+      <input type="range" id="brightSlider" class="ctrl-range" min="50" max="200" value="140" step="1" aria-label="Brightness">
+      <span class="ctrl-val" id="brightVal">1.4</span>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">VOL</span>
+      <input type="range" id="volSlider" class="ctrl-range" min="0" max="100" value="80" step="1" aria-label="Volume">
+      <span class="ctrl-val" id="volVal">80%</span>
+    </div>
+    <div class="speed-btns" aria-label="Playback speed">
+      <button type="button" class="btn speed-btn" data-speed="0.5">0.5x</button>
+      <button type="button" class="btn speed-btn active" data-speed="1">1x</button>
+      <button type="button" class="btn speed-btn" data-speed="1.5">1.5x</button>
+      <button type="button" class="btn speed-btn" data-speed="2">2x</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const VICTORIA_OVERLAY_SCRIPT = `<script>
+(function() {
+  const DENSITY = ' .:-=+*#%@█▓▒░';
+  window.__victoria = window.__victoria || {
+    enabled: true,
+    size: 8,
+    brightness: 1.4,
+    color: 'viridian',
+    volume: 0.8,
+    speed: 1,
+  };
+
+  function thermalColor(t) {
+    const stops = [
+      [0, [0, 0, 0]],
+      [0.25, [80, 0, 128]],
+      [0.5, [200, 0, 0]],
+      [0.75, [255, 120, 0]],
+      [1, [255, 255, 255]],
+    ];
+    const x = Math.max(0, Math.min(1, t));
+    for (let i = 0; i < stops.length - 1; i++) {
+      const [t0, c0] = stops[i];
+      const [t1, c1] = stops[i + 1];
+      if (x >= t0 && x <= t1) {
+        const f = (x - t0) / (t1 - t0);
+        const r = Math.round(c0[0] + (c1[0] - c0[0]) * f);
+        const g = Math.round(c0[1] + (c1[1] - c0[1]) * f);
+        const b = Math.round(c0[2] + (c1[2] - c0[2]) * f);
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+      }
+    }
+    return 'rgb(255,255,255)';
+  }
+
+  function colorForLuma(luma, settings) {
+    const t = Math.max(0, Math.min(1, luma * settings.brightness));
+    const c = (settings.color || 'viridian').toLowerCase();
+    if (c === 'thermal') return thermalColor(t);
+    if (c === 'nightvision') {
+      const g = Math.round(t * 255);
+      return 'rgb(0,' + g + ',65)';
+    }
+    if (c === 'amber') {
+      const r = Math.round(212 * t);
+      const g = Math.round(132 * t);
+      const b = Math.round(42 * t);
+      return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+    const v = Math.round(46 + t * (125 - 46));
+    const g = Math.round(125 + t * (168 - 125));
+    const b = Math.round(107 + t * (142 - 107));
+    return 'rgb(' + v + ',' + g + ',' + b + ')';
+  }
+
+  function applyVideoControls() {
+    document.querySelectorAll('video').forEach(function(v) {
+      v.volume = window.__victoria.volume;
+      v.playbackRate = window.__victoria.speed;
+    });
+  }
+
+  function renderAsciiOnMedia(media, canvas) {
+    var ctx = canvas.getContext('2d');
+    var off = document.createElement('canvas');
+    var offCtx = off.getContext('2d');
+    var running = true;
+    media.__victoriaStop = function() { running = false; };
+
+    function syncWrapperSize() {
+      var wrap = media.parentElement;
+      if (wrap && wrap.classList.contains('victoria-wrap')) {
+        var w = media.offsetWidth || media.clientWidth;
+        var h = media.offsetHeight || media.clientHeight;
+        if (w > 0) wrap.style.width = w + 'px';
+        if (h > 0) wrap.style.height = h + 'px';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+      }
+    }
+
+    function tick() {
+      if (!running) return;
+      var cfg = window.__victoria;
+      if (!cfg.enabled) {
+        canvas.style.visibility = 'hidden';
+        requestAnimationFrame(tick);
+        return;
+      }
+      canvas.style.visibility = 'visible';
+      syncWrapperSize();
+
+      var isVideo = media.tagName === 'VIDEO';
+      if (isVideo) {
+        media.volume = cfg.volume;
+        media.playbackRate = cfg.speed;
+        if (media.paused || media.ended) {
+          requestAnimationFrame(tick);
+          return;
+        }
+      }
+
+      var vw = isVideo ? (media.videoWidth || 0) : (media.naturalWidth || media.width || 0);
+      var vh = isVideo ? (media.videoHeight || 0) : (media.naturalHeight || media.height || 0);
+      if (!vw || !vh) {
+        requestAnimationFrame(tick);
+        return;
+      }
+
+      var cell = Math.max(4, cfg.size | 0);
+      canvas.width = vw;
+      canvas.height = vh;
+      off.width = vw;
+      off.height = vh;
+      try {
+        offCtx.drawImage(media, 0, 0, vw, vh);
+      } catch (e) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      var img = offCtx.getImageData(0, 0, vw, vh);
+      var data = img.data;
+
+      ctx.fillStyle = '#1A1A2E';
+      ctx.fillRect(0, 0, vw, vh);
+      ctx.font = cell + 'px "Share Tech Mono", monospace';
+      ctx.textBaseline = 'top';
+
+      for (var y = 0; y < vh; y += cell) {
+        for (var x = 0; x < vw; x += cell) {
+          var sum = 0, count = 0;
+          for (var dy = 0; dy < cell && y + dy < vh; dy++) {
+            for (var dx = 0; dx < cell && x + dx < vw; dx++) {
+              var i = ((y + dy) * vw + (x + dx)) * 4;
+              sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+              count++;
+            }
+          }
+          var avg = sum / count / 255;
+          var idx = Math.min(DENSITY.length - 1, Math.floor(avg * (DENSITY.length - 1)));
+          var ch = DENSITY[DENSITY.length - 1 - idx];
+          ctx.fillStyle = colorForLuma(avg, cfg);
+          ctx.fillText(ch, x, y);
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function applyAsciiOverlay(media) {
+    if (media.getAttribute('data-victoria') === 'true') return;
+    media.setAttribute('data-victoria', 'true');
+
+    var canvas = document.createElement('canvas');
+    canvas.className = 'victoria-ascii-overlay';
+    canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999999;';
+
+    var parent = media.parentNode;
+    if (parent && parent.classList && parent.classList.contains('victoria-wrap')) {
+      parent.appendChild(canvas);
+    } else {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'victoria-wrap';
+      wrapper.style.cssText = 'position:relative;display:inline-block;';
+      var w = media.offsetWidth || media.clientWidth;
+      var h = media.offsetHeight || media.clientHeight;
+      if (w > 0) wrapper.style.width = w + 'px';
+      if (h > 0) wrapper.style.height = h + 'px';
+      parent.insertBefore(wrapper, media);
+      wrapper.appendChild(media);
+      wrapper.appendChild(canvas);
+    }
+
+    renderAsciiOnMedia(media, canvas);
+  }
+
+  function findGifImages() {
+    return Array.prototype.filter.call(document.querySelectorAll('img'), function(img) {
+      var src = (img.getAttribute('src') || img.currentSrc || '').split('?')[0].toLowerCase();
+      return src.endsWith('.gif');
+    });
+  }
+
+  function scanMedia() {
+    document.querySelectorAll('video:not([data-victoria])').forEach(applyAsciiOverlay);
+    findGifImages().filter(function(img) {
+      return img.getAttribute('data-victoria') !== 'true';
+    }).forEach(applyAsciiOverlay);
+    applyVideoControls();
+  }
+
+  function initVictoriaOverlay() {
+    scanMedia();
+    if (window.__victoriaObserver) return;
+    window.__victoriaObserver = new MutationObserver(function() {
+      scanMedia();
+    });
+    if (document.body) {
+      window.__victoriaObserver.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'victoria-toggle') {
+      window.__victoria.enabled = !!d.enabled;
+    }
+    if (d.type === 'victoria-settings') {
+      if (d.size != null) window.__victoria.size = d.size;
+      if (d.brightness != null) window.__victoria.brightness = d.brightness;
+      if (d.color != null) window.__victoria.color = String(d.color).toLowerCase();
+      if (d.volume != null) window.__victoria.volume = d.volume;
+      if (d.speed != null) window.__victoria.speed = d.speed;
+      if (d.enabled != null) window.__victoria.enabled = !!d.enabled;
+      applyVideoControls();
+    }
+    if (d.type === 'victoria-init') {
+      initVictoriaOverlay();
+    }
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initVictoriaOverlay);
+  } else {
+    setTimeout(initVictoriaOverlay, 0);
+  }
+})();
+<\/script>`;
+
+  function injectVictoriaOverlay(html) {
+    if (html.includes('</body>')) {
+      return html.replace(/<\/body>/i, VICTORIA_OVERLAY_SCRIPT + '</body>');
+    }
+    return html + VICTORIA_OVERLAY_SCRIPT;
+  }
+
+  const frame = document.getElementById('browserFrame');
+  const addressBar = document.getElementById('addressBar');
+  const btnBack = document.getElementById('btnBack');
+  const btnForward = document.getElementById('btnForward');
+  const btnRefresh = document.getElementById('btnRefresh');
+  const btnGo = document.getElementById('btnGo');
+
+  const history = [];
+  let historyIndex = -1;
+
+  const COLOR_CYCLE = ['VIRIDIAN', 'THERMAL', 'NIGHTVISION', 'AMBER'];
+  let colorIndex = 0;
+  let asciiOn = true;
+
+  const btnAscii = document.getElementById('btnAscii');
+  const sizeSlider = document.getElementById('sizeSlider');
+  const sizeVal = document.getElementById('sizeVal');
+  const btnColor = document.getElementById('btnColor');
+  const brightSlider = document.getElementById('brightSlider');
+  const brightVal = document.getElementById('brightVal');
+  const volSlider = document.getElementById('volSlider');
+  const volVal = document.getElementById('volVal');
+
+  function getColorKey() {
+    return COLOR_CYCLE[colorIndex].toLowerCase();
+  }
+
+  function getPlaybackSpeed() {
+    const active = document.querySelector('.speed-btn.active');
+    return active ? parseFloat(active.dataset.speed) || 1 : 1;
+  }
+
+  function getVictoriaPayload() {
+    return {
+      enabled: asciiOn,
+      size: +sizeSlider.value || 8,
+      brightness: (+brightSlider.value || 140) / 100,
+      color: getColorKey(),
+      volume: (+volSlider.value || 0) / 100,
+      speed: getPlaybackSpeed(),
+    };
+  }
+
+  function postToFrame(msg) {
+    try {
+      frame.contentWindow?.postMessage(msg, '*');
+    } catch (_) {}
+  }
+
+  function sendVictoriaSettings() {
+    postToFrame({ type: 'victoria-settings', ...getVictoriaPayload() });
+  }
+
+  function sendVictoriaToggle() {
+    postToFrame({ type: 'victoria-toggle', enabled: asciiOn });
+  }
+
+  function scheduleVictoriaInit() {
+    setTimeout(() => {
+      postToFrame({ type: 'victoria-init' });
+      sendVictoriaSettings();
+      sendVictoriaToggle();
+    }, 1000);
+  }
+
+  function normalizeUrl(raw) {
+    const s = (raw || '').trim();
+    if (!s) return null;
+    if (/^https?:\/\//i.test(s)) return s;
+    return `https://${s}`;
+  }
+
+  function proxyUrl(target) {
+    return `/proxy?url=${encodeURIComponent(target)}`;
+  }
+
+  const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.ogg', '.m4v'];
+
+  function isDirectVideo(url) {
+    const lower = url.toLowerCase();
+    return VIDEO_EXTENSIONS.some((ext) => lower.includes(ext));
+  }
+
+  function buildDirectVideoSrcdoc(videoUrl) {
+    const src = proxyUrl(videoUrl);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;min-height:100vh;"><video id="mainVideo" src="${src}" controls style="max-width:100%;max-height:100vh" crossorigin="anonymous"></video></body></html>`;
+    return injectVictoriaOverlay(html);
+  }
+
+  function errorSrcdoc(message) {
+    const safe = String(message)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:24px;background:#1A1A2E;color:#E8E4DC;font-family:monospace;font-size:12px;">${safe}</body></html>`;
+  }
+
+  function syncNavButtons() {
+    btnBack.disabled = historyIndex <= 0;
+    btnForward.disabled = historyIndex < 0 || historyIndex >= history.length - 1;
+  }
+
+  async function loadPage(raw, { pushHistory = true } = {}) {
+    const url = normalizeUrl(raw);
+    if (!url) return;
+
+    addressBar.value = url;
+
+    if (pushHistory) {
+      if (historyIndex < history.length - 1) {
+        history.splice(historyIndex + 1);
+      }
+      history.push(url);
+      historyIndex = history.length - 1;
+    }
+
+    syncNavButtons();
+
+    frame.removeAttribute('src');
+    frame.srcdoc = errorSrcdoc('Loading…');
+    btnGo.disabled = true;
+
+    try {
+      if (isDirectVideo(url)) {
+        frame.srcdoc = buildDirectVideoSrcdoc(url);
+        scheduleVictoriaInit();
+        return;
+      }
+
+      const response = await fetch(proxyUrl(url));
+      const body = await response.text();
+      if (!response.ok) {
+        frame.srcdoc = errorSrcdoc(body || `Error ${response.status}`);
+        return;
+      }
+      const ct = response.headers.get('content-type') || '';
+      if (!ct.toLowerCase().includes('text/html')) {
+        if (isDirectVideo(url)) {
+          frame.srcdoc = buildDirectVideoSrcdoc(url);
+          scheduleVictoriaInit();
+          return;
+        }
+        frame.srcdoc = errorSrcdoc('Only HTML pages can be displayed in the browser view.');
+        return;
+      }
+      frame.srcdoc = injectVictoriaOverlay(body);
+      scheduleVictoriaInit();
+    } catch (err) {
+      frame.srcdoc = errorSrcdoc(err.message || 'Failed to load page');
+    } finally {
+      btnGo.disabled = false;
+    }
+  }
+
+  function loadFromBar() {
+    loadPage(addressBar.value, { pushHistory: true });
+  }
+
+  btnGo.addEventListener('click', loadFromBar);
+  addressBar.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loadFromBar();
+  });
+
+  btnBack.addEventListener('click', () => {
+    if (historyIndex <= 0) return;
+    historyIndex -= 1;
+    loadPage(history[historyIndex], { pushHistory: false });
+  });
+
+  btnForward.addEventListener('click', () => {
+    if (historyIndex >= history.length - 1) return;
+    historyIndex += 1;
+    loadPage(history[historyIndex], { pushHistory: false });
+  });
+
+  btnRefresh.addEventListener('click', () => {
+    if (historyIndex < 0) return;
+    loadPage(history[historyIndex], { pushHistory: false });
+  });
+
+  window.addEventListener('message', (e) => {
+    if (e.data?.type === 'navigate' && e.data.url) {
+      loadPage(e.data.url, { pushHistory: true });
+    }
+  });
+
+  btnAscii.addEventListener('click', () => {
+    asciiOn = !asciiOn;
+    btnAscii.classList.toggle('active', asciiOn);
+    btnAscii.textContent = asciiOn ? 'ASCII ON' : 'ASCII OFF';
+    sendVictoriaToggle();
+    sendVictoriaSettings();
+  });
+
+  sizeSlider.addEventListener('input', () => {
+    sizeVal.textContent = sizeSlider.value;
+    sendVictoriaSettings();
+  });
+
+  btnColor.addEventListener('click', () => {
+    colorIndex = (colorIndex + 1) % COLOR_CYCLE.length;
+    btnColor.textContent = COLOR_CYCLE[colorIndex];
+    sendVictoriaSettings();
+  });
+
+  brightSlider.addEventListener('input', () => {
+    brightVal.textContent = ((+brightSlider.value || 140) / 100).toFixed(1);
+    sendVictoriaSettings();
+  });
+
+  volSlider.addEventListener('input', () => {
+    volVal.textContent = `${volSlider.value}%`;
+    sendVictoriaSettings();
+  });
+
+  document.querySelectorAll('.speed-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.speed-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      sendVictoriaSettings();
+    });
+  });
+
+  syncNavButtons();
+})();
+</script>
+</body>
+</html>
