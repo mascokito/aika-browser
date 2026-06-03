@@ -116,6 +116,19 @@ function classifyRequest(targetUrl) {
   return 'document';
 }
 
+/** True for navigable pages; false for assets (fonts, images, media, etc.). */
+function looksLikeHtmlPage(url) {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    const nonHtmlExt =
+      /\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|mp4|webm|mp3|wav|pdf|zip|json|xml)$/;
+    if (nonHtmlExt.test(path)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getSecFetchHeaders(kind) {
   if (kind === 'document') {
     return {
@@ -327,21 +340,74 @@ function sendHtmlProxyResponse(res, html, { upstream = null, render = 'puppeteer
   res.end(buffer);
 }
 
-async function fetchHtmlDocument(targetUrl, signal, req) {
-  const upstream = await fetchWithRedirects(targetUrl, signal, req);
-  const contentType = upstream.headers.get('content-type') || '';
-  if (!contentType.toLowerCase().includes('text/html')) {
-    const err = new Error(`Expected HTML, got ${contentType || 'unknown'}`);
-    err.upstream = upstream;
-    throw err;
-  }
-  const body = await upstream.text();
-  return { body, upstream };
+function sendEmpty204(res, upstream) {
+  const headers = mergeResponseHeaders(
+    { 'Access-Control-Allow-Origin': '*' },
+    upstream
+  );
+  if (res.headersSent) return;
+  res.writeHead(204, headers);
+  res.end();
 }
 
-async function proxyHtmlDocument(targetUrl, req, res) {
-  const kind = classifyRequest(targetUrl);
-  if (kind === 'document') {
+async function respondFromUpstream(upstream, targetUrl, res, { htmlRender = 'fetch' } = {}) {
+  const contentLength = upstream.headers.get('content-length');
+  if (upstream.status === 204 || contentLength === '0') {
+    return sendEmpty204(res, upstream);
+  }
+
+  const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+  const ctLower = contentType.toLowerCase();
+
+  if (ctLower.includes('text/html')) {
+    const body = await upstream.text();
+    const modified = rewriteHtml(body, targetUrl);
+    return sendHtmlProxyResponse(res, modified, { upstream, render: htmlRender });
+  }
+
+  if (isCssResponse(contentType, targetUrl)) {
+    const css = await upstream.text();
+    const modified = rewriteCssUrls(css, targetUrl);
+    const buffer = Buffer.from(modified, 'utf8');
+    const headers = mergeResponseHeaders(
+      {
+        ...buildPassThroughHeaders(upstream),
+        'Content-Type': 'text/css; charset=utf-8',
+        'Content-Length': String(buffer.length),
+      },
+      upstream
+    );
+    if (res.headersSent) return;
+    res.writeHead(upstream.status, headers);
+    res.end(buffer);
+    return;
+  }
+
+  const passHeaders = mergeResponseHeaders(buildPassThroughHeaders(upstream), upstream);
+
+  if (!upstream.body) {
+    if (res.headersSent) return;
+    res.writeHead(upstream.status, passHeaders);
+    res.end();
+    return;
+  }
+
+  if (res.headersSent) return;
+  res.writeHead(upstream.status, passHeaders);
+
+  try {
+    await pipeline(Readable.fromWeb(upstream.body), res);
+  } catch (pipeErr) {
+    if (!res.headersSent) {
+      safeSend(res, 502, `Bad gateway: ${pipeErr.message || 'stream error'}`);
+    } else if (!res.writableEnded) {
+      res.end();
+    }
+  }
+}
+
+async function proxyHtmlDocument(targetUrl, req, res, signal) {
+  if (looksLikeHtmlPage(targetUrl)) {
     try {
       const html = await renderHtmlWithPuppeteer(targetUrl, req);
       const modified = rewriteHtml(html, targetUrl);
@@ -351,27 +417,8 @@ async function proxyHtmlDocument(targetUrl, req, res) {
     }
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const { body, upstream } = await fetchHtmlDocument(targetUrl, controller.signal, req);
-    const modified = rewriteHtml(body, targetUrl);
-    const headers = mergeResponseHeaders(
-      {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Length': Buffer.byteLength(modified, 'utf8'),
-        'Access-Control-Allow-Origin': '*',
-        'X-Content-Type-Options': 'nosniff',
-        'X-Victoria-Render': 'fetch',
-      },
-      upstream
-    );
-    if (res.headersSent) return;
-    res.writeHead(200, headers);
-    res.end(modified, 'utf8');
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const upstream = await fetchWithRedirects(targetUrl, signal, req);
+  return respondFromUpstream(upstream, targetUrl, res, { htmlRender: 'fetch' });
 }
 
 export async function handleProxy(req, res) {
@@ -388,60 +435,12 @@ export async function handleProxy(req, res) {
       );
     }
 
-    const kind = classifyRequest(targetUrl);
-    if (kind === 'document') {
-      return proxyHtmlDocument(targetUrl, req, res);
+    if (looksLikeHtmlPage(targetUrl)) {
+      return proxyHtmlDocument(targetUrl, req, res, controller.signal);
     }
 
     const upstream = await fetchWithRedirects(targetUrl, controller.signal, req);
-    const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
-    const ctLower = contentType.toLowerCase();
-
-    if (ctLower.includes('text/html')) {
-      const body = await upstream.text();
-      const modified = rewriteHtml(body, targetUrl);
-      return sendHtmlProxyResponse(res, modified, { upstream, render: 'fetch' });
-    }
-
-    if (isCssResponse(contentType, targetUrl)) {
-      const css = await upstream.text();
-      const modified = rewriteCssUrls(css, targetUrl);
-      const buffer = Buffer.from(modified, 'utf8');
-      const headers = mergeResponseHeaders(
-        {
-          ...buildPassThroughHeaders(upstream),
-          'Content-Type': 'text/css; charset=utf-8',
-          'Content-Length': String(buffer.length),
-        },
-        upstream
-      );
-      if (res.headersSent) return;
-      res.writeHead(upstream.status, headers);
-      res.end(buffer);
-      return;
-    }
-
-    const passHeaders = mergeResponseHeaders(buildPassThroughHeaders(upstream), upstream);
-
-    if (!upstream.body) {
-      if (res.headersSent) return;
-      res.writeHead(upstream.status, passHeaders);
-      res.end();
-      return;
-    }
-
-    if (res.headersSent) return;
-    res.writeHead(upstream.status, passHeaders);
-
-    try {
-      await pipeline(Readable.fromWeb(upstream.body), res);
-    } catch (pipeErr) {
-      if (!res.headersSent) {
-        safeSend(res, 502, `Bad gateway: ${pipeErr.message || 'stream error'}`);
-      } else if (!res.writableEnded) {
-        res.end();
-      }
-    }
+    return respondFromUpstream(upstream, targetUrl, res);
   } catch (err) {
     if (err.name === 'AbortError') {
       return safeSend(res, 504, 'Gateway timeout: upstream request timed out');
