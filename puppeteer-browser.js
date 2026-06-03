@@ -41,20 +41,47 @@ function pickUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
+function findNixStoreChromium() {
+  try {
+    const nixChromium = execSync(
+      'find /nix/store -name "chromium" -type f 2>/dev/null | head -1',
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
+    )
+      .toString()
+      .trim();
+    return nixChromium || null;
+  } catch {
+    return null;
+  }
+}
+
 function findChromiumPath() {
-  const candidates = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
+  const paths = [];
+
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    paths.push(process.env.PUPPETEER_EXECUTABLE_PATH);
+  }
+
+  const nixChromium = findNixStoreChromium();
+  if (nixChromium) paths.push(nixChromium);
+
+  paths.push(
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
     '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-  ].filter(Boolean);
+    '/usr/bin/google-chrome'
+  );
 
-  for (const p of candidates) {
+  if (process.platform === 'win32') {
+    paths.push(
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
+    );
+  }
+
+  for (const p of paths) {
     try {
-      if (fs.existsSync(p)) return p;
+      if (p && fs.existsSync(p)) return p;
     } catch {
       /* ignore */
     }
