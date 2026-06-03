@@ -1143,10 +1143,8 @@ const uploadPrompt = document.getElementById('uploadPrompt');
 let glChar = null;
 
 function resizeCanvases() {
-  if (!wrap) return;
   const w = wrap.clientWidth;
   const h = wrap.clientHeight;
-  if (w === 0 || h === 0) return;
   for (const c of [bgCanvas, charCanvas]) {
     c.width  = w;
     c.height = h;
@@ -1155,28 +1153,7 @@ function resizeCanvases() {
 }
 
 resizeCanvases();
-requestAnimationFrame(() => resizeCanvases());
-
-const canvasObserver = new ResizeObserver(() => {
-  resizeCanvases();
-});
-canvasObserver.observe(wrap);
-const stageEl = document.getElementById('stage');
-const mainAreaEl = document.getElementById('mainArea');
-if (stageEl) canvasObserver.observe(stageEl);
-if (mainAreaEl) canvasObserver.observe(mainAreaEl);
-
-window.addEventListener('orientationchange', () => {
-  setTimeout(() => resizeCanvases(), 500);
-});
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => resizeCanvases(), 100);
-  });
-} else {
-  setTimeout(() => resizeCanvases(), 100);
-}
+window.addEventListener('resize', resizeCanvases);
 
 // ── WebGL2 background (unchanged) ───────────────────────────────────────────
 const glBg = bgCanvas.getContext('webgl2');
@@ -1858,7 +1835,6 @@ glowSlider?.addEventListener('input', () => {
     sidebar?.classList.add('open');
     sidebar?.setAttribute('aria-hidden', 'false');
     backdrop?.classList.add('visible');
-    setTimeout(() => resizeCanvases(), 300);
   }
 
   function closeSidebar() {
@@ -1867,7 +1843,6 @@ glowSlider?.addEventListener('input', () => {
     sidebar?.setAttribute('aria-hidden', 'true');
     backdrop?.classList.remove('visible');
     icons.forEach((ic) => ic.classList.remove('active'));
-    setTimeout(() => resizeCanvases(), 300);
   }
 
   function toggleSection(section) {
@@ -3310,13 +3285,7 @@ function frame(ts) {
   const dt = Math.min(0.05, (ts - lastTime) / 1000);
   lastTime = ts;
 
-  if (bgCanvas.width === 0 || charCanvas.width === 0) {
-    requestAnimationFrame(frame);
-    return;
-  }
-
-  const W = charCanvas.width;
-  const H = charCanvas.height;
+  const W = bgCanvas.width, H = bgCanvas.height;
   compositeCanvas.width = W;
   compositeCanvas.height = H;
 
@@ -3337,6 +3306,7 @@ function frame(ts) {
     }
   }
 
+  bgCanvas.width  = W; bgCanvas.height = H;
   const streamIntensity = +streamSlider.value / 100;
   document.getElementById('streamVal').textContent = streamSlider.value + '%';
   if (glBg) renderBg(elapsed, streamIntensity);
