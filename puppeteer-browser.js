@@ -29,6 +29,9 @@ let lastLaunchError = null;
 let lastLaunchAt = null;
 let relaunchScheduled = false;
 
+export let activeRenders = 0;
+const MAX_CONCURRENT_RENDERS = 3;
+
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -222,33 +225,48 @@ export async function closePuppeteerBrowser() {
  * Render a URL to fully-hydrated HTML via headless Chromium.
  * @throws on navigation/render failure (caller should fall back to fetch)
  */
-export async function renderHtmlWithPuppeteer(targetUrl, req) {
-  const instance = await getBrowser();
-  const page = await instance.newPage();
+export async function renderHtmlWithPuppeteer(targetUrl, req, signal) {
+  if (activeRenders >= MAX_CONCURRENT_RENDERS) {
+    throw new Error('Puppeteer at capacity — falling back to fetch');
+  }
+  activeRenders++;
 
   try {
-    await page.setExtraHTTPHeaders(buildPageHeaders(req));
-    await page.setRequestInterception(true);
-    page.on('request', (request) => {
-      const type = request.resourceType();
-      if (ALLOWED_RESOURCE_TYPES.has(type)) {
-        request.continue();
-      } else {
-        request.abort();
-      }
-    });
+    const instance = await getBrowser();
+    const page = await instance.newPage();
 
-    await page.goto(targetUrl, {
-      waitUntil: 'networkidle2',
-      timeout: NAV_TIMEOUT_MS,
-    });
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        page.close().catch(() => {});
+      });
+    }
 
-    await page
-      .waitForSelector('video', { timeout: VIDEO_WAIT_MS })
-      .catch(() => {});
+    try {
+      await page.setExtraHTTPHeaders(buildPageHeaders(req));
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const type = request.resourceType();
+        if (ALLOWED_RESOURCE_TYPES.has(type)) {
+          request.continue();
+        } else {
+          request.abort();
+        }
+      });
 
-    return await page.content();
+      await page.goto(targetUrl, {
+        waitUntil: 'networkidle2',
+        timeout: NAV_TIMEOUT_MS,
+      });
+
+      await page
+        .waitForSelector('video', { timeout: VIDEO_WAIT_MS })
+        .catch(() => {});
+
+      return await page.content();
+    } finally {
+      await page.close().catch(() => {});
+    }
   } finally {
-    await page.close().catch(() => {});
+    activeRenders--;
   }
 }

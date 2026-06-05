@@ -187,7 +187,7 @@
     <button type="button" class="btn" id="btnGo">GO</button>
   </div>
   <div id="viewport">
-    <iframe id="browserFrame" title="Content" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+    <iframe id="browserFrame" title="Content" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>
     <video id="sourceVideo" playsinline></video>
     <canvas id="bgCanvas"></canvas>
     <canvas id="webglCanvas"></canvas>
@@ -2209,6 +2209,31 @@ document.getElementById('btnRec')?.addEventListener('click', async () => {
     return '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:24px;background:#1A1A2E;color:#E8E4DC;font-family:monospace;font-size:12px;">' + safe + '</body></html>';
   }
 
+  const FRAME_LOCAL_SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-popups';
+
+  function prepareFrameForSrcdoc() {
+    frame.removeAttribute('src');
+    frame.setAttribute('sandbox', FRAME_LOCAL_SANDBOX);
+  }
+
+  function navigateFrameToProxy(url, onLoad) {
+    frame.removeAttribute('sandbox');
+    frame.removeAttribute('srcdoc');
+    const target = proxyUrl(url);
+    const assignTarget = () => {
+      frame.onload = () => {
+        if (onLoad) onLoad();
+      };
+      frame.src = target;
+    };
+    if (frame.src) {
+      frame.onload = assignTarget;
+      frame.src = 'about:blank';
+    } else {
+      assignTarget();
+    }
+  }
+
   function syncNavButtons() {
     btnBack.disabled = historyIndex <= 0;
     btnForward.disabled = historyIndex < 0 || historyIndex >= history.length - 1;
@@ -2240,6 +2265,7 @@ document.getElementById('btnRec')?.addEventListener('click', async () => {
       syncNavButtons();
     }
     frame.removeAttribute('src');
+    prepareFrameForSrcdoc();
     if (isVideo) {
       contentKind = 'localVideo';
       userMode = 'webgl';
@@ -2264,7 +2290,7 @@ document.getElementById('btnRec')?.addEventListener('click', async () => {
     frame.srcdoc = errorSrcdoc('Unsupported file type. Use MP4, WebM, MOV, JPG, or PNG.');
   }
 
-  async function loadPage(raw, { pushHistory = true } = {}) {
+  function loadPage(raw, { pushHistory = true } = {}) {
     const trimmed = (raw || '').trim();
     if (trimmed.startsWith('local:')) {
       if (lastLocalFile && trimmed === lastLocalHistoryKey) {
@@ -2272,7 +2298,7 @@ document.getElementById('btnRec')?.addEventListener('click', async () => {
         return;
       }
       addressBar.value = trimmed.slice(6);
-      frame.removeAttribute('src');
+      prepareFrameForSrcdoc();
       frame.srcdoc = errorSrcdoc('Re-open this file with the LOCAL button.');
       if (pushHistory) syncNavButtons();
       return;
@@ -2288,38 +2314,27 @@ document.getElementById('btnRec')?.addEventListener('click', async () => {
       historyIndex = history.length - 1;
     }
     syncNavButtons();
-    frame.removeAttribute('src');
-    frame.srcdoc = errorSrcdoc('Loading…');
     btnGo.disabled = true;
     try {
       if (isDirectVideo(url)) {
         contentKind = 'directVideo';
         const src = proxyUrl(url);
         loadWebglSource(src, 'video');
+        prepareFrameForSrcdoc();
         frame.srcdoc = buildDirectVideoSrcdoc(url);
         afterContentLoad();
-        return;
-      }
-      const response = await fetch(proxyUrl(url));
-      const body = await response.text();
-      if (!response.ok) {
-        contentKind = 'none';
-        frame.srcdoc = errorSrcdoc(body || 'Error ' + response.status);
-        return;
-      }
-      const ct = response.headers.get('content-type') || '';
-      if (!ct.toLowerCase().includes('text/html')) {
-        frame.srcdoc = errorSrcdoc('Only HTML pages can be displayed in the browser view.');
-        contentKind = 'none';
+        btnGo.disabled = false;
         return;
       }
       contentKind = 'proxied';
-      frame.srcdoc = injectVictoriaOverlay(body);
-      afterContentLoad();
+      navigateFrameToProxy(url, () => {
+        btnGo.disabled = false;
+        afterContentLoad();
+      });
     } catch (err) {
       contentKind = 'none';
+      prepareFrameForSrcdoc();
       frame.srcdoc = errorSrcdoc(err.message || 'Failed to load page');
-    } finally {
       btnGo.disabled = false;
     }
   }

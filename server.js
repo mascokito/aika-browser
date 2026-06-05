@@ -8,6 +8,7 @@ import {
   getPuppeteerHealth,
   getBrowser,
   renderHtmlWithPuppeteer,
+  activeRenders,
 } from './puppeteer-browser.js';
 
 export { getBrowser, renderHtmlWithPuppeteer, getPuppeteerHealth };
@@ -38,9 +39,16 @@ const server = http.createServer(async (req, res) => {
   const pathname = req.url?.split('?')[0] || req.url;
 
   if (pathname === '/health') {
+    const mem = process.memoryUsage();
     const health = {
       ok: true,
+      memory: {
+        rss: Math.round(mem.rss / 1024 / 1024) + 'MB',
+        heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + 'MB',
+        heapTotal: Math.round(mem.heapTotal / 1024 / 1024) + 'MB',
+      },
       ...getPuppeteerHealth(),
+      activeRenders,
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(health));
@@ -51,11 +59,53 @@ const server = http.createServer(async (req, res) => {
     return handleProxy(req, res);
   }
 
+  const ASSET_INTERCEPT = /^\/((_app|_next|static|assets|dist|build|public)\/.+)$/;
+  const assetMatch = pathname.match(ASSET_INTERCEPT);
+  if (assetMatch) {
+    const referer = req.headers.referer || '';
+    const refMatch = referer.match(/\/proxy\?url=([^&]+)/);
+    if (refMatch) {
+      const originalSite = new URL(decodeURIComponent(refMatch[1])).origin;
+      const query = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      const redirectUrl =
+        '/proxy?url=' + encodeURIComponent(originalSite + pathname + query);
+      res.writeHead(302, { Location: redirectUrl });
+      res.end();
+      return;
+    }
+  }
+
   let filePath = '.' + pathname;
   if (filePath === './') filePath = './preview.html';
 
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.writeHead(404);
+      res.end('Not found');
+    } else {
+      res.writeHead(500);
+      res.end('Server error');
+    }
+    return;
+  }
+
+  const headers = { 'Content-Type': contentType };
+  if (filePath.endsWith('preview.html')) {
+    headers['Cross-Origin-Opener-Policy'] = 'same-origin';
+    headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+  }
+
+  if (stat.size > 100 * 1024) {
+    res.writeHead(200, headers);
+    fs.createReadStream(filePath).pipe(res);
+    return;
+  }
 
   fs.readFile(filePath, (err, content) => {
     if (err) {
@@ -67,11 +117,7 @@ const server = http.createServer(async (req, res) => {
         res.end('Server error');
       }
     } else {
-      res.writeHead(200, {
-        'Content-Type': contentType,
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-      });
+      res.writeHead(200, headers);
       res.end(content);
     }
   });
@@ -93,6 +139,21 @@ async function shutdown(signal) {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection:', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception:', err.message);
+  if (
+    (err.code && String(err.code).startsWith('ERR_SSL')) ||
+    err.code === 'ECONNRESET' ||
+    err.code === 'ECONNREFUSED'
+  ) {
+    return;
+  }
+});
 
 async function start() {
   try {
