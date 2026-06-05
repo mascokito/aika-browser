@@ -198,14 +198,25 @@ async function fetchWithRedirects(url, signal, req) {
 }
 
 function shouldSkipUrl(url) {
-  const t = (url || '').trim();
-  if (!t || t === '#') return true;
-  return /^(data:|javascript:|mailto:|#)/i.test(t);
+  return !isSafeToRewrite(url);
+}
+
+function isSafeToRewrite(url) {
+  if (!url) return false;
+  const t = String(url).trim();
+  if (!t) return false;
+  if (t.startsWith('data:')) return false;
+  if (t.startsWith('javascript:')) return false;
+  if (t.startsWith('blob:')) return false;
+  if (t.startsWith('#')) return false;
+  if (t.startsWith('mailto:')) return false;
+  if (t.startsWith('tel:')) return false;
+  return true;
 }
 
 function resolveAbsoluteUrl(raw, baseUrl) {
   const trimmed = (raw || '').trim();
-  if (shouldSkipUrl(trimmed)) return null;
+  if (!isSafeToRewrite(trimmed)) return null;
 
   try {
     if (trimmed.startsWith('//')) {
@@ -216,7 +227,7 @@ function resolveAbsoluteUrl(raw, baseUrl) {
     }
     const base = new URL(baseUrl);
     if (trimmed.startsWith('/')) {
-      return `${base.origin}${trimmed}`;
+      return new URL(trimmed, base.origin).href;
     }
     return new URL(trimmed, baseUrl).href;
   } catch {
@@ -229,15 +240,25 @@ function toProxyPath(absoluteUrl) {
 }
 
 function rewriteUrlToProxy(raw, baseUrl) {
-  const absolute = resolveAbsoluteUrl(raw, baseUrl);
-  if (!absolute) return raw;
-  return toProxyPath(absolute);
+  try {
+    if (!isSafeToRewrite(raw)) return raw;
+    const absolute = resolveAbsoluteUrl(raw, baseUrl);
+    if (!absolute) return raw;
+    new URL(absolute);
+    return toProxyPath(absolute);
+  } catch {
+    return raw;
+  }
 }
 
 function rewriteCssUrls(css, baseUrl) {
   return css.replace(/url\s*\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (match, quote, urlPart) => {
-    const proxied = rewriteUrlToProxy(urlPart.trim(), baseUrl);
-    return `url(${quote}${proxied}${quote})`;
+    try {
+      const proxied = rewriteUrlToProxy(urlPart.trim(), baseUrl);
+      return `url(${quote}${proxied}${quote})`;
+    } catch {
+      return match;
+    }
   });
 }
 
@@ -245,13 +266,17 @@ function rewriteSrcset(value, baseUrl) {
   return value
     .split(',')
     .map((part) => {
-      const trimmed = part.trim();
-      if (!trimmed) return part;
-      const spaceIdx = trimmed.search(/\s/);
-      const urlPart = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
-      const descriptor = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx);
-      const proxied = rewriteUrlToProxy(urlPart, baseUrl);
-      return proxied + descriptor;
+      try {
+        const trimmed = part.trim();
+        if (!trimmed) return part;
+        const spaceIdx = trimmed.search(/\s/);
+        const urlPart = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+        const descriptor = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx);
+        const proxied = rewriteUrlToProxy(urlPart, baseUrl);
+        return proxied + descriptor;
+      } catch {
+        return part;
+      }
     })
     .join(', ');
 }
@@ -259,13 +284,17 @@ function rewriteSrcset(value, baseUrl) {
 function rewriteAttrUrls(html, attr, baseUrl) {
   const pattern = new RegExp(`\\b${attr}\\s*=\\s*(["'])([^"']*)\\1`, 'gi');
   return html.replace(pattern, (match, quote, value) => {
-    const trimmed = value.trim();
-    if (shouldSkipUrl(trimmed)) return match;
-    if (attr.toLowerCase() === 'srcset') {
-      return `${attr}=${quote}${rewriteSrcset(trimmed, baseUrl)}${quote}`;
+    try {
+      const trimmed = value.trim();
+      if (!isSafeToRewrite(trimmed)) return match;
+      if (attr.toLowerCase() === 'srcset') {
+        return `${attr}=${quote}${rewriteSrcset(trimmed, baseUrl)}${quote}`;
+      }
+      const proxied = rewriteUrlToProxy(trimmed, baseUrl);
+      return `${attr}=${quote}${proxied}${quote}`;
+    } catch {
+      return match;
     }
-    const proxied = rewriteUrlToProxy(trimmed, baseUrl);
-    return `${attr}=${quote}${proxied}${quote}`;
   });
 }
 
@@ -290,6 +319,10 @@ function injectScripts(html) {
 }
 
 function rewriteHtml(html, pageUrl) {
+  html = html.replace(/\s+integrity="[^"]*"/gi, '');
+  html = html.replace(/\s+integrity='[^']*'/gi, '');
+  html = html.replace(/\s+crossorigin="[^"]*"/gi, '');
+  html = html.replace(/\s+crossorigin='[^']*'/gi, '');
   html = rewriteAttrUrls(html, 'src', pageUrl);
   html = rewriteAttrUrls(html, 'href', pageUrl);
   html = rewriteAttrUrls(html, 'srcset', pageUrl);
@@ -316,12 +349,57 @@ function buildPassThroughHeaders(upstream) {
 }
 
 function isCssResponse(contentType, targetUrl) {
+  if (getForcedContentType(targetUrl) === 'text/css; charset=utf-8') return true;
   const ct = (contentType || '').toLowerCase();
   if (ct.includes('text/css')) return true;
   try {
     return new URL(targetUrl).pathname.toLowerCase().endsWith('.css');
   } catch {
     return false;
+  }
+}
+
+function getForcedContentType(targetUrl) {
+  try {
+    const path = new URL(targetUrl).pathname.toLowerCase();
+    if (/\.mjs($|\?)/.test(path) || /\.js($|\?)/.test(path)) {
+      return 'application/javascript; charset=utf-8';
+    }
+    if (/\.css($|\?)/.test(path)) {
+      return 'text/css; charset=utf-8';
+    }
+    if (/\.json($|\?)/.test(path)) {
+      return 'application/json; charset=utf-8';
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function streamUpstreamBody(upstream, res, targetUrl) {
+  const passHeaders = mergeResponseHeaders(buildPassThroughHeaders(upstream), upstream);
+  const forcedType = getForcedContentType(targetUrl);
+  if (forcedType) passHeaders['Content-Type'] = forcedType;
+
+  if (!upstream.body) {
+    if (res.headersSent) return;
+    res.writeHead(upstream.status, passHeaders);
+    res.end();
+    return;
+  }
+
+  if (res.headersSent) return;
+  res.writeHead(upstream.status, passHeaders);
+
+  try {
+    await pipeline(Readable.fromWeb(upstream.body), res);
+  } catch (pipeErr) {
+    if (!res.headersSent) {
+      safeSend(res, 502, `Bad gateway: ${pipeErr.message || 'stream error'}`);
+    } else if (!res.writableEnded) {
+      res.end();
+    }
   }
 }
 
@@ -358,12 +436,7 @@ async function respondFromUpstream(upstream, targetUrl, res, { htmlRender = 'fet
 
   const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
   const ctLower = contentType.toLowerCase();
-
-  if (ctLower.includes('text/html')) {
-    const body = await upstream.text();
-    const modified = rewriteHtml(body, targetUrl);
-    return sendHtmlProxyResponse(res, modified, { upstream, render: htmlRender });
-  }
+  const forcedType = getForcedContentType(targetUrl);
 
   if (isCssResponse(contentType, targetUrl)) {
     const css = await upstream.text();
@@ -383,27 +456,20 @@ async function respondFromUpstream(upstream, targetUrl, res, { htmlRender = 'fet
     return;
   }
 
-  const passHeaders = mergeResponseHeaders(buildPassThroughHeaders(upstream), upstream);
-
-  if (!upstream.body) {
-    if (res.headersSent) return;
-    res.writeHead(upstream.status, passHeaders);
-    res.end();
-    return;
+  if (
+    forcedType === 'application/javascript; charset=utf-8' ||
+    forcedType === 'application/json; charset=utf-8'
+  ) {
+    return streamUpstreamBody(upstream, res, targetUrl);
   }
 
-  if (res.headersSent) return;
-  res.writeHead(upstream.status, passHeaders);
-
-  try {
-    await pipeline(Readable.fromWeb(upstream.body), res);
-  } catch (pipeErr) {
-    if (!res.headersSent) {
-      safeSend(res, 502, `Bad gateway: ${pipeErr.message || 'stream error'}`);
-    } else if (!res.writableEnded) {
-      res.end();
-    }
+  if (!forcedType && ctLower.includes('text/html')) {
+    const body = await upstream.text();
+    const modified = rewriteHtml(body, targetUrl);
+    return sendHtmlProxyResponse(res, modified, { upstream, render: htmlRender });
   }
+
+  return streamUpstreamBody(upstream, res, targetUrl);
 }
 
 async function proxyHtmlDocument(targetUrl, req, res, signal) {
