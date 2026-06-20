@@ -107,11 +107,17 @@
       text-align: center;
     }
     .stream-domain {
-      color: #aaa;
+      color: #666;
+      font-size: 11px;
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .stream-label {
+      color: var(--viridian);
+      font-size: 12px;
+      min-width: 60px;
     }
 
     #playbackView {
@@ -146,6 +152,15 @@
       width: 100%;
       height: 100%;
       pointer-events: none;
+    }
+
+    #aikaGlCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      display: none;
     }
 
     #playbackControls {
@@ -315,6 +330,7 @@
     <div id="videoWrapper">
       <video id="aikavid" playsinline muted crossorigin="anonymous"></video>
       <canvas id="aikaCanvas"></canvas>
+      <canvas id="aikaGlCanvas"></canvas>
     </div>
 
     <div id="playbackControls">
@@ -330,8 +346,7 @@
         <div class="ctrl-group">
           <span class="ctrl-label">EFFECT</span>
           <div class="btn-group">
-            <button class="effect-btn active" type="button" data-effect="ascii">ASCII</button>
-            <button class="effect-btn" type="button" data-effect="halftone">HALFTONE</button>
+            <button class="effect-btn active" type="button" data-effect="halftone">HALFTONE</button>
             <button class="effect-btn" type="button" data-effect="off">OFF</button>
           </div>
         </div>
@@ -366,7 +381,7 @@
 
 <script>
 const state = {
-  effect: 'ascii',
+  effect: 'halftone',
   color: 'viridian',
   size: 8,
   brightness: 1.4,
@@ -382,6 +397,183 @@ const state = {
   sampleCtx: null,
   sampleDims: null,
 };
+
+let gl = null;
+let glProgram = null;
+let glUniforms = {};
+let glVideoTex = null;
+let glQuadBuf = null;
+let webglReady = false;
+
+const COLOR_PRESET_MAP = {
+  viridian: 0, midnight: 1, amber: 2, crimson: 3, ghost: 4,
+};
+
+function initWebGL() {
+  const glCanvas = document.getElementById('aikaGlCanvas');
+  gl = glCanvas.getContext('webgl2', {
+    alpha: false,
+    premultipliedAlpha: false,
+    antialias: false,
+    depth: false,
+    stencil: false,
+    preserveDrawingBuffer: true,
+  });
+  if (!gl) {
+    console.warn('[aika] WebGL2 not available, using 2D halftone fallback');
+    webglReady = false;
+    return false;
+  }
+
+  function compileShader(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error('[aika] Shader compile error:', gl.getShaderInfoLog(s));
+      gl.deleteShader(s);
+      return null;
+    }
+    return s;
+  }
+
+  const VERT_SRC = `#version 300 es
+in vec2 a_position;
+out vec2 v_uv;
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+  const FRAG_SRC = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_cell;
+uniform float u_brightness;
+uniform int u_colorPreset;
+in vec2 v_uv;
+out vec4 outColor;
+vec3 paletteColor(float t, int preset) {
+  t = clamp(t, 0.0, 1.0);
+  if (preset == 1) return vec3(5.0/255.0, 16.0/255.0, (27.0+t*80.0)/255.0);
+  if (preset == 2) return vec3(212.0*t/255.0, 132.0*t/255.0, 42.0*t/255.0);
+  if (preset == 3) return vec3((40.0+t*200.0)/255.0, 8.0/255.0, 24.0/255.0);
+  if (preset == 4) { float g=(120.0+t*120.0)/255.0; return vec3(g,g,g+8.0/255.0); }
+  return vec3((46.0+t*79.0)/255.0,(125.0+t*43.0)/255.0,(107.0+t*35.0)/255.0);
+}
+void main() {
+  vec2 cellCoord = floor(gl_FragCoord.xy / u_cell);
+  vec2 cellCenter = (cellCoord + 0.5) * u_cell;
+  vec2 sampleUv = cellCenter / u_res;
+  sampleUv.y = 1.0 - sampleUv.y;
+  vec4 vid = texture(u_video, sampleUv);
+  if (vid.a < 0.04) { outColor = vec4(0.04, 0.04, 0.06, 1.0); return; }
+  float luma = dot(vid.rgb, vec3(0.299, 0.587, 0.114));
+  float t = clamp(luma * u_brightness, 0.0, 1.0);
+  if (t < 0.04) { outColor = vec4(0.04, 0.04, 0.06, 1.0); return; }
+  float maxR = u_cell * 0.5;
+  float radius = maxR * (0.2 + t * 0.8);
+  float dist = length(gl_FragCoord.xy - cellCenter);
+  if (dist <= radius) {
+    outColor = vec4(paletteColor(t, u_colorPreset), 1.0);
+  } else {
+    outColor = vec4(0.04, 0.04, 0.06, 1.0);
+  }
+}`;
+
+  const vert = compileShader(gl.VERTEX_SHADER, VERT_SRC);
+  const frag = compileShader(gl.FRAGMENT_SHADER, FRAG_SRC);
+  if (!vert || !frag) {
+    webglReady = false;
+    return false;
+  }
+
+  glProgram = gl.createProgram();
+  gl.attachShader(glProgram, vert);
+  gl.attachShader(glProgram, frag);
+  gl.linkProgram(glProgram);
+  if (!gl.getProgramParameter(glProgram, gl.LINK_STATUS)) {
+    console.error('[aika] Program link error:', gl.getProgramInfoLog(glProgram));
+    webglReady = false;
+    return false;
+  }
+
+  glQuadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, glQuadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,
+    new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+    gl.STATIC_DRAW);
+
+  gl.useProgram(glProgram);
+  glUniforms = {
+    position: gl.getAttribLocation(glProgram, 'a_position'),
+    video: gl.getUniformLocation(glProgram, 'u_video'),
+    res: gl.getUniformLocation(glProgram, 'u_res'),
+    cell: gl.getUniformLocation(glProgram, 'u_cell'),
+    brightness: gl.getUniformLocation(glProgram, 'u_brightness'),
+    colorPreset: gl.getUniformLocation(glProgram, 'u_colorPreset'),
+  };
+
+  glVideoTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, glVideoTex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  glCanvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    webglReady = false;
+    console.warn('[aika] WebGL context lost');
+  });
+  glCanvas.addEventListener('webglcontextrestored', () => {
+    initWebGL();
+  });
+
+  webglReady = true;
+  console.log('[aika] WebGL2 halftone initialized');
+  return true;
+}
+
+function renderWebGLHalftone() {
+  if (!webglReady || !gl) return false;
+  if (aikavid.readyState < 2) return false;
+
+  const w = aikavid.videoWidth;
+  const h = aikavid.videoHeight;
+  if (!w || !h) return false;
+
+  if (aikaGlCanvas.width !== w || aikaGlCanvas.height !== h) {
+    aikaGlCanvas.width = w;
+    aikaGlCanvas.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, glVideoTex);
+  try {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, aikavid);
+  } catch (e) {
+    console.warn('[aika] WebGL texImage2D failed:', e.message);
+    webglReady = false;
+    return false;
+  }
+
+  gl.useProgram(glProgram);
+  gl.uniform1i(glUniforms.video, 0);
+  gl.uniform2f(glUniforms.res, w, h);
+  gl.uniform1f(glUniforms.cell, Math.max(2, state.size));
+  gl.uniform1f(glUniforms.brightness, state.brightness);
+  gl.uniform1i(glUniforms.colorPreset, COLOR_PRESET_MAP[state.color] ?? 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, glQuadBuf);
+  gl.enableVertexAttribArray(glUniforms.position);
+  gl.vertexAttribPointer(glUniforms.position, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  return true;
+}
 
 async function registerSW() {
   if (!('serviceWorker' in navigator)) {
@@ -458,11 +650,12 @@ function updateStreamBadge() {
 
 function openStreamPicker() {
   streamList.innerHTML = '';
-  state.streams.forEach((stream) => {
+  state.streams.forEach((stream, i) => {
     const item = document.createElement('div');
     item.className = 'stream-item';
     item.innerHTML = `
       <span class="stream-type">${stream.type}</span>
+      <span class="stream-label">Server ${i + 1}</span>
       <span class="stream-domain">${stream.domain}</span>
     `;
     item.addEventListener('click', () => loadStream(stream));
@@ -544,6 +737,7 @@ function killStream() {
   const ctx = aikaCanvas.getContext('2d');
   ctx.clearRect(0, 0, aikaCanvas.width, aikaCanvas.height);
   aikaCanvas.style.display = 'block';
+  aikaGlCanvas.style.display = 'none';
   tapToPlay.classList.add('hidden');
 
   playbackView.classList.add('hidden');
@@ -560,18 +754,6 @@ function formatTime(s) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return m + ':' + String(sec).padStart(2, '0');
-}
-
-const DENSITY = ' .:-=+*#%@█▓▒░';
-
-function colorForLuma(luma) {
-  const t = Math.max(0, Math.min(1, luma * state.brightness));
-  const c = state.color;
-  if (c === 'amber') return `rgb(${Math.round(212*t)},${Math.round(132*t)},${Math.round(42*t)})`;
-  if (c === 'midnight') return `rgb(5,16,${Math.round(27+t*80)})`;
-  if (c === 'crimson') return `rgb(${Math.round(40+t*200)},8,24)`;
-  if (c === 'ghost') { const g = Math.round(120+t*120); return `rgb(${g},${g},${g+8})`; }
-  return `rgb(${Math.round(46+t*79)},${Math.round(125+t*43)},${Math.round(107+t*35)})`;
 }
 
 function quantizeColor(r, g, b) {
@@ -598,23 +780,31 @@ function renderFrame(ts) {
     return;
   }
 
-  const now = ts || performance.now();
-  if (state.lastFrame && now - state.lastFrame < 33) {
-    state.rafId = requestAnimationFrame(renderFrame);
-    return;
-  }
-  state.lastFrame = now;
-
   state.rafId = requestAnimationFrame(renderFrame);
 
-  if (state.effect === 'off') {
-    aikaCanvas.style.display = 'none';
-    return;
-  }
-  aikaCanvas.style.display = 'block';
+  const now = ts || performance.now();
+  if (state.lastFrame && now - state.lastFrame < 33) return;
+  state.lastFrame = now;
 
   const vw = aikavid.videoWidth;
   const vh = aikavid.videoHeight;
+
+  if (state.effect === 'off') {
+    aikaGlCanvas.style.display = 'none';
+    aikaCanvas.style.display = 'none';
+    return;
+  }
+
+  if (state.effect === 'halftone' && webglReady) {
+    aikaGlCanvas.style.display = 'block';
+    aikaCanvas.style.display = 'none';
+    renderWebGLHalftone();
+    return;
+  }
+
+  aikaGlCanvas.style.display = 'none';
+  aikaCanvas.style.display = 'block';
+
   if (aikaCanvas.width !== vw || aikaCanvas.height !== vh) {
     aikaCanvas.width = vw;
     aikaCanvas.height = vh;
@@ -636,61 +826,38 @@ function renderFrame(ts) {
 
   const img = s.ctx.getImageData(0, 0, s.w, s.h);
   const data = img.data;
-  const sx = s.w / vw, sy = s.h / vh;
-  const cell = Math.max(state.effect === 'halftone' ? 2 : 4, state.size | 0);
+  const sx = s.w / vw;
+  const sy = s.h / vh;
+  const cell = Math.max(2, state.size);
 
   ctx.fillStyle = '#0a0a0f';
   ctx.fillRect(0, 0, vw, vh);
 
-  if (state.effect === 'halftone') {
-    const maxR = cell / 2;
-    const buckets = {};
-    for (let cy = 0; cy < vh; cy += cell) {
-      for (let cx = 0; cx < vw; cx += cell) {
-        const px = Math.min(s.w-1, ((cx+cell/2)*sx)|0);
-        const py = Math.min(s.h-1, ((cy+cell/2)*sy)|0);
-        const ii = (py*s.w+px)*4;
-        if (data[ii+3] < 10) continue;
-        const luma = (data[ii]*0.299+data[ii+1]*0.587+data[ii+2]*0.114)/255;
-        if (luma < 0.04) continue;
-        const rad = Math.max(0.5, maxR*(0.2+luma*0.8));
-        const ck = quantizeColor(data[ii], data[ii+1], data[ii+2]);
-        if (!buckets[ck]) buckets[ck] = [];
-        buckets[ck].push({ x: cx+cell/2, y: cy+cell/2, r: rad });
-      }
+  const maxR = cell / 2;
+  const buckets = {};
+  for (let cy = 0; cy < vh; cy += cell) {
+    for (let cx = 0; cx < vw; cx += cell) {
+      const px = Math.min(s.w - 1, ((cx + cell / 2) * sx) | 0);
+      const py = Math.min(s.h - 1, ((cy + cell / 2) * sy) | 0);
+      const ii = (py * s.w + px) * 4;
+      if (data[ii + 3] < 10) continue;
+      const luma = (data[ii] * 0.299 + data[ii + 1] * 0.587 + data[ii + 2] * 0.114) / 255;
+      if (luma < 0.04) continue;
+      const rad = Math.max(0.5, maxR * (0.2 + luma * 0.8));
+      const ck = quantizeColor(data[ii], data[ii + 1], data[ii + 2]);
+      if (!buckets[ck]) buckets[ck] = [];
+      buckets[ck].push({ x: cx + cell / 2, y: cy + cell / 2, r: rad });
     }
-    for (const col in buckets) {
-      const dots = buckets[col];
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      for (const d of dots) {
-        ctx.moveTo(d.x+d.r, d.y);
-        ctx.arc(d.x, d.y, d.r, 0, Math.PI*2);
-      }
-      ctx.fill();
+  }
+  for (const col in buckets) {
+    const dots = buckets[col];
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    for (const d of dots) {
+      ctx.moveTo(d.x + d.r, d.y);
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
     }
-  } else {
-    const charB = {};
-    ctx.font = `${cell}px "Share Tech Mono","Courier New",monospace`;
-    ctx.textBaseline = 'top';
-    for (let y = 0; y < vh; y += cell) {
-      for (let x = 0; x < vw; x += cell) {
-        const spx = Math.min(s.w-1, ((x+cell/2)*sx)|0);
-        const spy = Math.min(s.h-1, ((y+cell/2)*sy)|0);
-        const si = (spy*s.w+spx)*4;
-        if (data[si+3] < 10) continue;
-        const avg = (data[si]*0.299+data[si+1]*0.587+data[si+2]*0.114)/255;
-        if (avg < 0.04) continue;
-        const ch = DENSITY[DENSITY.length-1-Math.min(DENSITY.length-1,Math.floor(avg*(DENSITY.length-1)))];
-        const fill = colorForLuma(avg);
-        if (!charB[fill]) charB[fill] = [];
-        charB[fill].push({ x, y, ch });
-      }
-    }
-    for (const fill in charB) {
-      ctx.fillStyle = fill;
-      for (const g of charB[fill]) ctx.fillText(g.ch, g.x, g.y);
-    }
+    ctx.fill();
   }
 }
 
@@ -729,6 +896,7 @@ const playbackView = document.getElementById('playbackView');
 const videoWrapper = document.getElementById('videoWrapper');
 const aikavid = document.getElementById('aikavid');
 const aikaCanvas = document.getElementById('aikaCanvas');
+const aikaGlCanvas = document.getElementById('aikaGlCanvas');
 const btnKill = document.getElementById('btnKill');
 const btnMute = document.getElementById('btnMute');
 const btnFullscreen = document.getElementById('btnFullscreen');
@@ -875,6 +1043,7 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 });
 
 registerSW();
+initWebGL();
 </script>
 </body>
 </html>
