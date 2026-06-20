@@ -2,6 +2,8 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
 
+let renderQueue = Promise.resolve();
+
 const LAUNCH_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -12,8 +14,23 @@ const LAUNCH_ARGS = [
   '--single-process',
 ];
 
-const NAV_TIMEOUT_MS = 15_000;
+const NAV_TIMEOUT_MS = 8_000;
 const VIDEO_WAIT_MS = 5_000;
+const PLAYER_DOMAINS = ['player.zilla-networks.com', 'mp4upload.com', 'streamtape.com'];
+
+function getNavTimeout(url) {
+  try {
+    const host = new URL(url).hostname;
+    if (PLAYER_DOMAINS.some((d) => host.includes(d))) return 15_000;
+  } catch {
+    /* ignore */
+  }
+  return NAV_TIMEOUT_MS;
+}
+
+function isPlayerDomainUrl(url) {
+  return PLAYER_DOMAINS.some((d) => url.includes(d));
+}
 
 const ALLOWED_RESOURCE_TYPES = new Set([
   'document',
@@ -30,7 +47,7 @@ let lastLaunchAt = null;
 let relaunchScheduled = false;
 
 export let activeRenders = 0;
-const MAX_CONCURRENT_RENDERS = 3;
+const MAX_CONCURRENT_RENDERS = 1;
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -226,9 +243,13 @@ export async function closePuppeteerBrowser() {
  * @throws on navigation/render failure (caller should fall back to fetch)
  */
 export async function renderHtmlWithPuppeteer(targetUrl, req, signal) {
-  if (activeRenders >= MAX_CONCURRENT_RENDERS) {
-    throw new Error('Puppeteer at capacity — falling back to fetch');
-  }
+  const run = () => renderHtmlWithPuppeteerInner(targetUrl, req, signal);
+  const queued = renderQueue.then(run, run);
+  renderQueue = queued.catch(() => {});
+  return queued;
+}
+
+async function renderHtmlWithPuppeteerInner(targetUrl, req, signal) {
   activeRenders++;
 
   try {
@@ -242,27 +263,51 @@ export async function renderHtmlWithPuppeteer(targetUrl, req, signal) {
     }
 
     try {
-      await page.setExtraHTTPHeaders(buildPageHeaders(req));
+      if (!isPlayerDomainUrl(targetUrl)) {
+        await page.setExtraHTTPHeaders(buildPageHeaders(req));
+      }
       await page.setRequestInterception(true);
       page.on('request', (request) => {
         const type = request.resourceType();
-        if (ALLOWED_RESOURCE_TYPES.has(type)) {
+        const url = request.url();
+        if (isPlayerDomainUrl(url) || ALLOWED_RESOURCE_TYPES.has(type)) {
           request.continue();
         } else {
           request.abort();
         }
       });
 
-      await page.goto(targetUrl, {
-        waitUntil: 'networkidle2',
-        timeout: NAV_TIMEOUT_MS,
-      });
+      const navTimeout = getNavTimeout(targetUrl);
+      const renderTimeout = isPlayerDomainUrl(targetUrl) ? 28_000 : navTimeout + VIDEO_WAIT_MS + 5_000;
 
-      await page
-        .waitForSelector('video', { timeout: VIDEO_WAIT_MS })
-        .catch(() => {});
+      const html = await Promise.race([
+        (async () => {
+          await page.goto(targetUrl, {
+            waitUntil: isPlayerDomainUrl(targetUrl) ? 'networkidle2' : 'domcontentloaded',
+            timeout: navTimeout,
+          });
 
-      return await page.content();
+          if (isPlayerDomainUrl(targetUrl)) {
+            await page
+              .waitForSelector('#app:not(:empty), video, .player', { timeout: 10_000 })
+              .catch(() => {});
+            await new Promise((r) => setTimeout(r, 2000));
+          } else {
+            await page.waitForSelector('video', { timeout: VIDEO_WAIT_MS }).catch(() => {});
+          }
+
+          return await page.content();
+        })(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Puppeteer render timed out')), renderTimeout)
+        ),
+      ]);
+
+      if (isPlayerDomainUrl(targetUrl) && html.length < 5_000) {
+        throw new Error('Puppeteer returned player shell without hydrated content');
+      }
+
+      return html;
     } finally {
       await page.close().catch(() => {});
     }

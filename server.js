@@ -1,19 +1,39 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { handleProxy } from './proxy.js';
+import { handleProxy, handleEmbedExtract } from './proxy.js';
 import {
   initPuppeteerBrowser,
   closePuppeteerBrowser,
   getPuppeteerHealth,
-  getBrowser,
-  renderHtmlWithPuppeteer,
   activeRenders,
 } from './puppeteer-browser.js';
 
-export { getBrowser, renderHtmlWithPuppeteer, getPuppeteerHealth };
-
 const PORT = process.env.PORT || 3000;
+
+/** Prefer Referer (nested iframe context) over cookie for catch-all asset redirects. */
+function extractProxyOrigin(req) {
+  const referer = req.headers.referer || '';
+  const refMatch = referer.match(/\/proxy\?url=([^&\s]+)/);
+  if (refMatch) {
+    try {
+      return new URL(decodeURIComponent(refMatch[1])).origin;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const cookieMatch = (req.headers.cookie || '').match(/aika_proxy_origin=([^;]+)/);
+  if (cookieMatch) {
+    try {
+      return new URL(decodeURIComponent(cookieMatch[1])).origin;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return null;
+}
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -55,17 +75,21 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/proxy-embed') {
+    return handleEmbedExtract(req, res);
+  }
+
   if (pathname.startsWith('/proxy')) {
     return handleProxy(req, res);
   }
 
-  const ASSET_INTERCEPT = /^\/((_app|_next|static|assets|dist|build|public)\/.+)$/;
+  const ASSET_INTERCEPT = /^\/((_app|_next|static|assets|dist|build|public|immutable)\/.+)$/;
   const assetMatch = pathname.match(ASSET_INTERCEPT);
   if (assetMatch) {
     const referer = req.headers.referer || '';
-    const refMatch = referer.match(/\/proxy\?url=([^&]+)/);
-    if (refMatch) {
-      const originalSite = new URL(decodeURIComponent(refMatch[1])).origin;
+    console.log('[asset-intercept] pathname:', pathname, '| referer:', referer || '(none)');
+    const originalSite = extractProxyOrigin(req);
+    if (originalSite) {
       const query = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
       const redirectUrl =
         '/proxy?url=' + encodeURIComponent(originalSite + pathname + query);
@@ -75,8 +99,26 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Catch-all: any path that isn't a known local file and isn't /proxy or
+  // /health gets redirected through the proxy using referer (preferred) or cookie.
+  const isProxyOrHealth = pathname === '/proxy' || pathname === '/health';
+  const localFilePath = '.' + pathname;
+
+  if (!isProxyOrHealth && pathname !== '/' && !fs.existsSync(localFilePath)) {
+    const originToUse = extractProxyOrigin(req);
+
+    if (originToUse) {
+      const query = req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      const redirectUrl = '/proxy?url=' + encodeURIComponent(originToUse + pathname + query);
+      console.log('[catch-all] redirecting', pathname, '→', redirectUrl);
+      res.writeHead(302, { Location: redirectUrl });
+      res.end();
+      return;
+    }
+  }
+
   let filePath = '.' + pathname;
-  if (filePath === './') filePath = './preview.html';
+  if (filePath === './') filePath = './browser.html';
 
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
@@ -165,7 +207,7 @@ async function start() {
   }
 
   server.listen(PORT, () => {
-    console.log(`Victoria Engine running on port ${PORT}`);
+    console.log(`Aika Browser running on port ${PORT}`);
   });
 }
 

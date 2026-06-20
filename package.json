@@ -1,32 +1,28 @@
 {
-  "name": "victoria-engine",
+  "name": "aika-browser",
   "version": "0.1.0",
-  "description": "2D character rendering engine for Victoria Rois — synthetic AI news anchor",
-  "main": "runtime.js",
+  "description": "Browser-within-a-browser with ASCII/halftone overlay on proxied media",
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "preview": "npx serve . -p 3000",
-    "dev": "npx serve . -p 3000",
-    "render": "node runtime.js --audio ./assets/sample.wav --output ./output/bulletin.mp4"
+    "dev": "npx serve . -p 3000"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
     "@ghostery/adblocker": "^2.18.0",
-    "fluent-ffmpeg": "^2.1.3",
-    "minimist": "^1.2.8",
     "node-fetch": "^3.3.2",
-    "puppeteer-core": "^22.0.0",
-    "ws": "^8.16.0"
+    "puppeteer-core": "^22.0.0"
   },
   "keywords": [
-    "webgl",
-    "character-renderer",
-    "lip-sync",
+    "browser",
+    "proxy",
     "ascii-shader",
-    "synthetic-anchor"
+    "halftone",
+    "webgl"
   ],
   "license": "MIT"
 }

@@ -1,2486 +1,652 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Victoria Engine — Browser</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Cinzel:wght@400;700&display=swap');
-  :root {
-    --viridian: #2E7D6B; --viridian-dim: #1D5248; --viridian-glow: #3FA88E;
-    --midnight: #1B3A6B; --bg-deep: #1A1A2E; --bg-mid: #12121F;
-    --gold: #B8963E; --gold-bright: #D4AE57;
-    --parchment: #E8E4DC; --parchment-dim: #A89F93;
-    --nav-h: 48px;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; background: var(--bg-deep); color: var(--parchment);
-    font-family: 'Share Tech Mono', monospace; overflow: hidden; }
-  #shell { display: flex; flex-direction: column; width: 100vw; height: 100vh; height: 100dvh; }
-  #navBar { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-height: var(--nav-h);
-    background: var(--bg-mid); border-bottom: 1px solid var(--viridian); flex-shrink: 0; }
-  #navBar .btn-nav { flex-shrink: 0; min-width: 44px; min-height: 44px; padding: 6px 10px; font-size: 14px; }
-  #addressBar { flex: 1; min-width: 0; min-height: 44px; background: var(--bg-deep); color: var(--parchment);
-    border: 1px solid var(--viridian-dim); padding: 8px 12px; font-family: inherit; font-size: 11px; outline: none; }
-  #addressBar:focus { border-color: var(--viridian-glow); }
-  #btnGo { min-height: 44px; padding: 6px 14px; }
-  #btnLocal {
-    min-height: 44px;
-    padding: 6px 14px;
-    border-color: var(--gold);
-    color: var(--gold-bright);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-  #btnLocal:hover { background: var(--gold); color: var(--bg-deep); }
-  #localFileInput {
-    position: fixed;
-    left: -10000px;
-    top: 0;
-    width: 1px;
-    height: 1px;
-    opacity: 0.001;
-    overflow: hidden;
-  }
-  #viewport { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; }
-  #browserFrame { position: absolute; inset: 0; width: 100%; height: 100%; border: none; background: #000; z-index: 1; }
-  #webglCanvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; display: none; }
-  #webglCanvas.active { display: block; }
-  #bgCanvas { display: none; }
-  #sourceVideo { display: none; }
-  #modeNotice { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5;
-    padding: 6px 12px; background: rgba(18,18,31,0.92); border: 1px solid var(--gold); color: var(--gold-bright);
-    font-size: 9px; letter-spacing: 0.08em; display: none; max-width: 90%; text-align: center; }
-  #modeNotice.visible { display: block; }
-  #playPrompt {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
-    display: none;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    background: rgba(10, 10, 20, 0.72);
-    cursor: pointer;
-  }
-  #playPrompt.visible { display: flex; }
-  #playPromptBtn {
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    border: 2px solid var(--viridian-glow);
-    background: var(--viridian);
-    color: var(--bg-deep);
-    font-size: 28px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 0 0 4px;
-    box-shadow: 0 0 24px rgba(63, 168, 142, 0.35);
-  }
-  #playPromptBtn:hover { background: var(--viridian-glow); }
-  #playPromptText {
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--parchment);
-  }
-  #controlsPanel {
-    flex-shrink: 0;
-    background: var(--bg-mid);
-    border-top: 1px solid var(--viridian);
-    padding: 6px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    max-height: 120px;
-    overflow-y: auto;
-  }
-  #controlsPanel .section { display: flex; flex-direction: column; gap: 6px; }
-  .section.hidden { display: none; }
-  #controlsPanel .section-hdr {
-    font-size: 8px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--gold);
-    border-bottom: 1px solid var(--viridian-dim);
-    padding-bottom: 2px;
-    line-height: 1.2;
-  }
-  #controlsPanel .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-  #controlsPanel .pill-group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .btn {
-    background: none;
-    border: 1px solid var(--viridian);
-    color: var(--viridian-glow);
-    font-family: inherit;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    text-transform: uppercase;
-    transition: all 0.15s;
-  }
-  #controlsPanel .btn {
-    padding: 2px 8px;
-    min-height: 22px;
-    height: 22px;
-    font-size: 8px;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  #controlsPanel .btn.pill[data-mode] { height: 22px; min-height: 22px; }
-  .btn:hover:not(:disabled) { background: var(--viridian); color: var(--bg-deep); }
-  .btn.active { background: var(--viridian); color: var(--bg-deep); border-color: var(--viridian-glow); }
-  .btn:disabled, .btn.disabled { opacity: 0.35; cursor: not-allowed; }
-  .btn.pill { border-radius: 999px; }
-  #controlsPanel .ctrl-group { display: flex; align-items: center; gap: 4px; min-height: 22px; }
-  #controlsPanel .ctrl-label { font-size: 8px; color: var(--parchment-dim); text-transform: uppercase; }
-  #controlsPanel .ctrl-val { font-size: 8px; color: var(--viridian-glow); min-width: 22px; }
-  #controlsPanel input[type=range] {
-    width: 56px;
-    height: 3px;
-    -webkit-appearance: none;
-    appearance: none;
-    border-radius: 2px;
-    background: var(--bg-deep);
-    accent-color: var(--viridian-glow);
-  }
-  #controlsPanel input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--viridian-glow);
-    border: 1px solid var(--viridian);
-    margin-top: -4.5px;
-  }
-  #controlsPanel input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; }
-  #controlsPanel input[type=range]::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--viridian-glow);
-    border: 1px solid var(--viridian);
-  }
-  #controlsPanel input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: var(--bg-deep); }
-  #seekBar { flex: 1; min-width: 60px; width: auto; max-width: none; height: 3px; }
-  #controlsPanel .transport-row { display: flex; align-items: center; gap: 4px; width: 100%; height: 28px; min-height: 28px; }
-  #controlsPanel #btnPlay { min-width: 24px; width: 24px; height: 24px; min-height: 24px; padding: 0; font-size: 10px; }
-  #controlsPanel #btnRec.active { border-color: #c44; color: #f88; background: rgba(180,40,40,0.25); }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Aika Browser</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
+
+    :root {
+      --viridian: #4dba6a;
+      --bg: #0a0a0f;
+      --bg2: #111118;
+      --text: #7dba8a;
+      --border: #1a2a1a;
+      --font: 'Share Tech Mono', 'Courier New', monospace;
+    }
+
+    body { font-family: var(--font); color: var(--text); }
+
+    #addressBar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 48px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 8px;
+      z-index: 100;
+      transition: transform 0.3s ease;
+    }
+    #addressBar.hidden { transform: translateY(-100%); }
+
+    #browseView {
+      position: fixed;
+      top: 48px; left: 0; right: 0; bottom: 0;
+      transition: opacity 0.3s ease;
+    }
+    #browseView.hidden { opacity: 0; pointer-events: none; }
+    #browserFrame { width: 100%; height: 100%; border: none; background: #000; }
+
+    #streamBadge {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--viridian);
+      color: var(--bg);
+      padding: 10px 18px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 200;
+      transition: opacity 0.3s;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #streamBadge.hidden { opacity: 0; pointer-events: none; }
+
+    #streamPicker {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--bg2);
+      border-top: 1px solid var(--viridian);
+      max-height: 50vh;
+      overflow-y: auto;
+      z-index: 300;
+      transition: transform 0.3s ease;
+    }
+    #streamPicker.hidden { transform: translateY(100%); }
+    #streamPickerHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--viridian);
+      font-size: 13px;
+    }
+    .stream-item {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--text);
+      font-size: 12px;
+      min-height: 48px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .stream-item:active { background: #1a2a1a; }
+    .stream-type {
+      background: var(--viridian);
+      color: var(--bg);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: bold;
+      min-width: 40px;
+      text-align: center;
+    }
+    .stream-domain {
+      color: #aaa;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #playbackView {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #000;
+      z-index: 50;
+      transition: opacity 0.3s ease;
+    }
+    #playbackView.hidden { opacity: 0; pointer-events: none; }
+    #aikavid {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    #aikaCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    #playbackControls {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.9));
+      padding: 24px 16px 16px;
+      z-index: 60;
+    }
+    .ctrl-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .ctrl-label {
+      color: #666;
+      font-size: 10px;
+      min-width: 60px;
+    }
+    .btn-group { display: flex; gap: 4px; flex-wrap: wrap; }
+    #controlsRow1 { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+    #controlsRow2 { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+    .ctrl-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+    button {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      font-family: var(--font);
+      font-size: 11px;
+      cursor: pointer;
+      border-radius: 3px;
+      min-height: 44px;
+      min-width: 44px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button.active {
+      background: var(--viridian);
+      color: var(--bg);
+      border-color: var(--viridian);
+    }
+    #btnKill {
+      border-color: #e05050;
+      color: #e05050;
+    }
+    #btnKill:active { background: #e05050; color: #fff; }
+
+    #urlInput {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      font-family: var(--font);
+      font-size: 13px;
+      border-radius: 3px;
+      min-height: 44px;
+    }
+    #btnGo {
+      background: var(--viridian);
+      color: var(--bg);
+      border-color: var(--viridian);
+      font-weight: bold;
+    }
+
+    input[type=range] {
+      accent-color: var(--viridian);
+      width: 80px;
+      min-height: 44px;
+    }
+
+    .hidden { display: none !important; }
+  </style>
 </head>
 <body>
-<div id="shell">
-  <div id="navBar">
-    <button type="button" class="btn btn-nav" id="btnBack">←</button>
-    <button type="button" class="btn btn-nav" id="btnForward">→</button>
-    <button type="button" class="btn btn-nav" id="btnRefresh">↺</button>
-    <input type="url" id="addressBar" placeholder="https://example.com" autocomplete="off" spellcheck="false">
-    <input type="file" id="localFileInput" accept=".mp4,.webm,.mov,.jpg,.jpeg,.png,video/mp4,video/webm,video/quicktime,image/jpeg,image/png" aria-hidden="true">
-    <label for="localFileInput" class="btn" id="btnLocal">LOCAL</label>
-    <button type="button" class="btn" id="btnGo">GO</button>
+
+  <div id="addressBar">
+    <button id="btnBack" type="button" aria-label="Back">←</button>
+    <button id="btnForward" type="button" aria-label="Forward">→</button>
+    <button id="btnRefresh" type="button" aria-label="Refresh">↺</button>
+    <input id="urlInput" type="url" placeholder="Enter URL..." autocomplete="off" spellcheck="false">
+    <button id="btnGo" type="button">GO</button>
   </div>
-  <div id="viewport">
-    <iframe id="browserFrame" title="Content" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>
-    <video id="sourceVideo" playsinline></video>
-    <canvas id="bgCanvas"></canvas>
-    <canvas id="webglCanvas"></canvas>
-    <div id="modeNotice" role="status"></div>
-    <div id="playPrompt" aria-hidden="true">
-      <button type="button" id="playPromptBtn" aria-label="Play video">▶</button>
-      <span id="playPromptText">Tap to play</span>
+
+  <div id="browseView">
+    <iframe id="browserFrame"
+      title="Browse"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+      allow="autoplay; fullscreen"
+      src="about:blank">
+    </iframe>
+  </div>
+
+  <div id="streamPicker" class="hidden">
+    <div id="streamPickerHeader">
+      <span id="streamCount">0 streams detected</span>
+      <button id="btnDismissPicker" type="button" aria-label="Close">✕</button>
     </div>
+    <div id="streamList"></div>
   </div>
-  <div id="controlsPanel">
-    <div class="section" id="sectionRendering">
-      <div class="section-hdr">Rendering</div>
-      <div class="row pill-group">
-        <button type="button" class="btn pill" data-mode="webgl">WEBGL</button>
-        <button type="button" class="btn pill active" data-mode="canvas">CANVAS</button>
-        <button type="button" class="btn pill" data-mode="off">OFF</button>
-      </div>
-      <div class="row pill-group" id="sectionFx">
-        <button type="button" class="btn pill active" data-effect="ascii">ASCII</button>
-        <button type="button" class="btn pill" data-effect="halftone">HALFTONE</button>
-        <button type="button" class="btn pill disabled" data-effect="thermal">THERMAL</button>
-        <button type="button" class="btn pill disabled" data-effect="nightvision">NIGHTVISION</button>
-        <button type="button" class="btn pill" data-effect="dither">DITHER</button>
-      </div>
-      <div class="row" id="sectionShared">
-        <div class="ctrl-group"><span class="ctrl-label">SIZE</span>
-          <input type="range" id="sizeSlider" min="2" max="20" value="8" step="1">
-          <span class="ctrl-val" id="sizeVal">8</span></div>
-        <div class="pill-group">
-          <button type="button" class="btn pill active" data-preset="0">VIRIDIAN</button>
-          <button type="button" class="btn pill" data-preset="1">MIDNIGHT</button>
-          <button type="button" class="btn pill" data-preset="2">AMBER</button>
-          <button type="button" class="btn pill" data-preset="3">CRIMSON</button>
-          <button type="button" class="btn pill" data-preset="4">GHOST</button>
+
+  <div id="streamBadge" class="hidden">
+    <span id="badgeText">● 0 streams</span>
+  </div>
+
+  <div id="playbackView" class="hidden">
+    <video id="aikavid" playsinline muted crossorigin="anonymous"></video>
+    <canvas id="aikaCanvas"></canvas>
+
+    <div id="playbackControls">
+      <div id="controlsRow1">
+        <div class="ctrl-group">
+          <span class="ctrl-label">EFFECT</span>
+          <div class="btn-group">
+            <button class="effect-btn active" type="button" data-effect="ascii">ASCII</button>
+            <button class="effect-btn" type="button" data-effect="halftone">HALFTONE</button>
+            <button class="effect-btn" type="button" data-effect="off">OFF</button>
+          </div>
         </div>
-        <div class="ctrl-group"><span class="ctrl-label">BRIGHT</span>
-          <input type="range" id="brightSlider" min="50" max="200" value="140" step="1">
-          <span class="ctrl-val" id="brightVal">1.4</span></div>
-      </div>
-    </div>
-    <div class="section hidden" id="sectionWebgl">
-      <div class="section-hdr">WebGL Extras</div>
-      <div class="row">
-        <div class="ctrl-group"><span class="ctrl-label">GLITCH</span><input type="range" id="glitchSlider" min="0" max="100" value="20"><span class="ctrl-val" id="glitchVal">20</span></div>
-        <div class="ctrl-group"><span class="ctrl-label">CHROMA</span><input type="range" id="chromaSlider" min="0" max="100" value="0"></div>
-        <div class="ctrl-group"><span class="ctrl-label">CRT</span><input type="range" id="crtSlider" min="0" max="100" value="0"></div>
-        <div class="ctrl-group"><span class="ctrl-label">GLOW</span><input type="range" id="glowSlider" min="0" max="100" value="0"></div>
-      </div>
-      <div class="row pill-group">
-        <button type="button" class="btn pill" id="btnRain">RAIN</button>
-        <button type="button" class="btn pill" id="btnVhs">VHS</button>
-        <button type="button" class="btn pill" id="btnInterf">INTERFERENCE</button>
-      </div>
-    </div>
-    <div class="section" id="sectionTransport">
-      <div class="section-hdr">Transport</div>
-      <div class="transport-row">
-        <button type="button" class="btn" id="btnPlay">▶</button>
-        <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1">
-        <span class="ctrl-val" id="seekCurrent">00:00</span><span class="ctrl-val">/</span><span class="ctrl-val" id="seekDuration">00:00</span>
-      </div>
-      <div class="row">
-        <div class="ctrl-group"><span class="ctrl-label">VOL</span>
-          <input type="range" id="volSlider" min="0" max="100" value="80"><span class="ctrl-val" id="volVal">80%</span></div>
-        <div class="pill-group">
-          <button type="button" class="btn pill speed-btn" data-speed="0.5">0.5x</button>
-          <button type="button" class="btn pill speed-btn active" data-speed="1">1x</button>
-          <button type="button" class="btn pill speed-btn" data-speed="1.5">1.5x</button>
-          <button type="button" class="btn pill speed-btn" data-speed="2">2x</button>
-          <button type="button" class="btn pill speed-btn" data-speed="3">3x</button>
+        <div class="ctrl-group">
+          <span class="ctrl-label">COLOR</span>
+          <div class="btn-group">
+            <button class="color-btn active" type="button" data-color="viridian">VRD</button>
+            <button class="color-btn" type="button" data-color="midnight">MID</button>
+            <button class="color-btn" type="button" data-color="amber">AMB</button>
+            <button class="color-btn" type="button" data-color="crimson">CRM</button>
+            <button class="color-btn" type="button" data-color="ghost">GST</button>
+          </div>
         </div>
-        <button type="button" class="btn" id="btnRec">REC</button>
+      </div>
+      <div id="controlsRow2">
+        <div class="ctrl-group">
+          <span class="ctrl-label">SIZE <span id="sizeVal">8</span></span>
+          <input type="range" id="sizeSlider" min="4" max="24" value="8">
+        </div>
+        <div class="ctrl-group">
+          <span class="ctrl-label">BRIGHT <span id="brightVal">1.4</span></span>
+          <input type="range" id="brightSlider" min="0.5" max="3.0" step="0.1" value="1.4">
+        </div>
+        <div class="ctrl-group ctrl-actions">
+          <button id="btnMute" type="button">UNMUTE</button>
+          <button id="btnKill" type="button">KILL STREAM</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
-<script type="module">
-import CanvasRecorder from './capture/recorder.js';
-const VICTORIA = {
-  viridian:    [0.180, 0.490, 0.420],
-  midnight:    [0.106, 0.227, 0.420],
-  bg:          [0.102, 0.102, 0.180],
-  gold:        [0.722, 0.588, 0.243],
-  parchment:   [0.910, 0.894, 0.863],
+
+<script>
+const state = {
+  effect: 'ascii',
+  color: 'viridian',
+  size: 8,
+  brightness: 1.4,
+  muted: true,
+  streams: [],
+  pickerOpen: false,
+  playbackActive: false,
+  rafId: null,
+  sampleCanvas: null,
+  sampleCtx: null,
 };
+
+async function registerSW() {
+  if (!('serviceWorker' in navigator)) {
+    console.warn('[aika] Service Worker not supported');
+    return false;
+  }
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    console.log('[aika] SW registered:', reg.scope);
+    await navigator.serviceWorker.ready;
+    return true;
+  } catch (e) {
+    console.warn('[aika] SW registration failed:', e.message);
+    return false;
+  }
+}
+
+const EMBED_PATTERNS = [
+  /mp4upload\.com\/embed/i,
+  /mp4upload\.com\/[a-z0-9]+$/i,
+  /streamtape\.com\/e\//i,
+  /doodstream\.com\/e\//i,
+];
+
+async function resolveEmbedStream(stream) {
+  if (!EMBED_PATTERNS.some(p => p.test(stream.realUrl))) {
+    return [stream];
+  }
+
+  try {
+    const res = await fetch('/proxy-embed?url=' + encodeURIComponent(stream.realUrl));
+    const data = await res.json();
+    if (data.streams && data.streams.length > 0) {
+      return data.streams.map(s => ({
+        proxyUrl: '/proxy?url=' + encodeURIComponent(s.url),
+        realUrl: s.url,
+        type: s.type,
+        domain: new URL(s.url).hostname,
+        source: 'embed-follow',
+      }));
+    }
+  } catch (e) {
+    console.warn('[aika] embed follow failed:', e.message);
+  }
+  return [];
+}
+
+async function onStreamDetected(stream) {
+  if (state.playbackActive) return;
+
+  const resolved = await resolveEmbedStream(stream);
+  let added = false;
+  resolved.forEach(s => {
+    const exists = state.streams.some(x => x.realUrl === s.realUrl);
+    if (!exists) {
+      state.streams.push(s);
+      added = true;
+      console.log('[aika] Stream detected:', s.type, s.domain, s.source || '');
+    }
+  });
+  if (added) updateStreamBadge();
+}
+
+function updateStreamBadge() {
+  const count = state.streams.length;
+  streamCount.textContent = `${count} stream${count !== 1 ? 's' : ''} detected`;
+  if (count === 0) {
+    streamBadge.classList.add('hidden');
+    return;
+  }
+  streamBadge.classList.remove('hidden');
+  badgeText.textContent = `● ${count} stream${count > 1 ? 's' : ''} detected`;
+}
+
+function openStreamPicker() {
+  streamList.innerHTML = '';
+  state.streams.forEach((stream) => {
+    const item = document.createElement('div');
+    item.className = 'stream-item';
+    item.innerHTML = `
+      <span class="stream-type">${stream.type}</span>
+      <span class="stream-domain">${stream.domain}</span>
+    `;
+    item.addEventListener('click', () => loadStream(stream));
+    streamList.appendChild(item);
+  });
+  streamPicker.classList.remove('hidden');
+  streamBadge.classList.add('hidden');
+  state.pickerOpen = true;
+}
+
+function closeStreamPicker() {
+  streamPicker.classList.add('hidden');
+  state.pickerOpen = false;
+  if (state.streams.length > 0 && !state.playbackActive) {
+    streamBadge.classList.remove('hidden');
+  }
+}
+
+function loadStream(stream) {
+  closeStreamPicker();
+  aikavid.src = stream.proxyUrl;
+  aikavid.muted = true;
+  state.muted = true;
+  btnMute.textContent = 'UNMUTE';
+  btnMute.classList.remove('active');
+  aikavid.load();
+  aikavid.play().catch(() => {});
+  enterPlaybackMode();
+}
+
+function enterPlaybackMode() {
+  state.playbackActive = true;
+  addressBar.classList.add('hidden');
+  browseView.classList.add('hidden');
+  streamBadge.classList.add('hidden');
+  streamPicker.classList.add('hidden');
+  playbackView.classList.remove('hidden');
+  startRenderLoop();
+}
+
+function killStream() {
+  state.playbackActive = false;
+  aikavid.pause();
+  aikavid.removeAttribute('src');
+  aikavid.load();
+  cancelAnimationFrame(state.rafId);
+  state.rafId = null;
+
+  const ctx = aikaCanvas.getContext('2d');
+  ctx.clearRect(0, 0, aikaCanvas.width, aikaCanvas.height);
+  aikaCanvas.style.display = 'block';
+
+  playbackView.classList.add('hidden');
+  browseView.classList.remove('hidden');
+  addressBar.classList.remove('hidden');
+
+  state.streams = [];
+  state.pickerOpen = false;
+  updateStreamBadge();
+}
 
 const DENSITY = ' .:-=+*#%@█▓▒░';
 
-const bgCanvas = document.getElementById('bgCanvas');
-const webglCanvas = document.getElementById('webglCanvas');
-const wrap = document.getElementById('viewport');
+function colorForLuma(luma) {
+  const t = Math.max(0, Math.min(1, luma * state.brightness));
+  const c = state.color;
+  if (c === 'amber') return `rgb(${Math.round(212*t)},${Math.round(132*t)},${Math.round(42*t)})`;
+  if (c === 'midnight') return `rgb(5,16,${Math.round(27+t*80)})`;
+  if (c === 'crimson') return `rgb(${Math.round(40+t*200)},8,24)`;
+  if (c === 'ghost') { const g = Math.round(120+t*120); return `rgb(${g},${g},${g+8})`; }
+  return `rgb(${Math.round(46+t*79)},${Math.round(125+t*43)},${Math.round(107+t*35)})`;
+}
 
+function quantizeColor(r, g, b) {
+  const br = state.brightness;
+  return `rgb(${Math.min(255,Math.round(Math.min(255,r*br)/32)*32)},${Math.min(255,Math.round(Math.min(255,g*br)/32)*32)},${Math.min(255,Math.round(Math.min(255,b*br)/32)*32)})`;
+}
 
-/** Set after getContext; avoids TDZ if resize runs before char pipeline init. */
-let glChar = null;
-
-function resizeCanvases() {
-  const w = wrap.clientWidth;
-  const h = wrap.clientHeight;
-  for (const c of [bgCanvas, webglCanvas]) {
-    c.width  = w;
-    c.height = h;
+function ensureSampleCanvas(vw, vh) {
+  const W = 320, H = Math.max(1, Math.round(W * (vh / vw)));
+  if (!state.sampleCanvas) {
+    state.sampleCanvas = document.createElement('canvas');
+    state.sampleCtx = state.sampleCanvas.getContext('2d', { willReadFrequently: true });
   }
-  if (glChar) resizeCharPipeline(w, h);
-}
-
-resizeCanvases();
-window.addEventListener('resize', resizeCanvases);
-
-// ── WebGL2 background (unchanged) ───────────────────────────────────────────
-const glBg = bgCanvas.getContext('webgl2');
-let bgProgram, bgUniforms;
-
-const BG_VERT = `#version 300 es
-in vec2 a_pos;
-out vec2 v_uv;
-void main() {
-  v_uv = a_pos * 0.5 + 0.5;
-  gl_Position = vec4(a_pos, 0.0, 1.0);
-}`;
-
-const BG_FRAG = `#version 300 es
-precision highp float;
-uniform vec2  u_res;
-uniform float u_time;
-uniform float u_intensity;
-uniform vec3  u_colorA;
-uniform vec3  u_colorB;
-uniform vec3  u_bgColor;
-in vec2 v_uv;
-out vec4 fragColor;
-
-float rng(vec2 s) { return fract(sin(dot(s, vec2(12.9898,78.233))) * 43758.5453); }
-float rng1(float n){ return fract(sin(n) * 43758.5453); }
-
-float stream(vec2 uv, float col, float t) {
-  float spd = 0.3 + rng1(col) * 0.8;
-  float off = rng1(col + 99.0);
-  float y   = fract(uv.y - off - t * spd * u_intensity);
-  float head = smoothstep(0.025, 0.0, y) * 2.0;
-  float tail = smoothstep(0.0, 0.45, y) * smoothstep(1.0, 0.45, y) * 0.7;
-  return head + tail;
-}
-
-void main() {
-  float charH = 12.0;
-  float charW = 7.0;
-  vec2 cell   = floor(vec2(v_uv.x * u_res.x / charW, v_uv.y * u_res.y / charH));
-  float col   = cell.x;
-
-  float alpha = stream(v_uv, col, u_time);
-
-  float tick  = floor(u_time * 15.0);
-  float cBit  = step(0.5, rng(cell + tick));
-  float cMask = cBit;
-
-  float cType = rng1(col);
-  vec3  sc    = cType < 0.6 ? u_colorA : cType < 0.9 ? u_colorB : u_bgColor + vec3(0.72,0.59,0.24)*2.0;
-
-  float scan = 0.82 + 0.18 * sin(v_uv.y * u_res.y * 3.14159);
-
-  vec2  ctr = v_uv - 0.5;
-  float vig = 1.0 - dot(ctr, ctr) * 1.4;
-  vig = clamp(vig, 0.0, 1.0);
-
-  vec3 col3 = u_bgColor;
-  float contrib = clamp(alpha * cMask * scan * vig * u_intensity, 0.0, 0.9);
-  col3 = mix(col3, sc, contrib);
-  col3 += u_colorA * 0.025 * vig * u_intensity;
-
-  float bandN = rng(vec2(floor(v_uv.y * 50.0), floor(u_time * 4.0)));
-  if (bandN > 0.97) {
-    col3 += u_colorA * 0.3 * u_intensity;
+  if (state.sampleCanvas.width !== W || state.sampleCanvas.height !== H) {
+    state.sampleCanvas.width = W;
+    state.sampleCanvas.height = H;
   }
-
-  fragColor = vec4(col3, 1.0);
-}`;
-
-function compileShader(gl, type, src) {
-  const s = gl.createShader(type);
-  gl.shaderSource(s, src);
-  gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-    console.error(gl.getShaderInfoLog(s));
-  }
-  return s;
+  return { w: W, h: H, ctx: state.sampleCtx };
 }
 
-function linkProgram(gl, vs, fs) {
-  const p = gl.createProgram();
-  gl.attachShader(p, vs);
-  gl.attachShader(p, fs);
-  gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-    console.error(gl.getProgramInfoLog(p));
-  }
-  return p;
-}
+function renderFrame() {
+  state.rafId = requestAnimationFrame(renderFrame);
+  if (aikavid.paused || aikavid.ended || !aikavid.videoWidth) return;
 
-function initBgShader() {
-  const vs = compileShader(glBg, glBg.VERTEX_SHADER, BG_VERT);
-  const fs = compileShader(glBg, glBg.FRAGMENT_SHADER, BG_FRAG);
-  bgProgram = linkProgram(glBg, vs, fs);
-
-  const buf = glBg.createBuffer();
-  glBg.bindBuffer(glBg.ARRAY_BUFFER, buf);
-  glBg.bufferData(glBg.ARRAY_BUFFER, new Float32Array([
-    -1,-1,  1,-1,  -1,1,
-     1,-1,  1, 1,  -1,1,
-  ]), glBg.STATIC_DRAW);
-
-  const loc = glBg.getAttribLocation(bgProgram, 'a_pos');
-  glBg.enableVertexAttribArray(loc);
-  glBg.vertexAttribPointer(loc, 2, glBg.FLOAT, false, 0, 0);
-
-  bgUniforms = {
-    res: glBg.getUniformLocation(bgProgram, 'u_res'),
-    time: glBg.getUniformLocation(bgProgram, 'u_time'),
-    intensity: glBg.getUniformLocation(bgProgram, 'u_intensity'),
-    colorA: glBg.getUniformLocation(bgProgram, 'u_colorA'),
-    colorB: glBg.getUniformLocation(bgProgram, 'u_colorB'),
-    bgColor: glBg.getUniformLocation(bgProgram, 'u_bgColor'),
-  };
-}
-
-function renderBg(time, intensity) {
-  const w = bgCanvas.width, h = bgCanvas.height;
-  glBg.viewport(0, 0, w, h);
-  glBg.clearColor(...VICTORIA.bg, 1);
-  glBg.clear(glBg.COLOR_BUFFER_BIT);
-  glBg.useProgram(bgProgram);
-  glBg.uniform2f(bgUniforms.res, w, h);
-  glBg.uniform1f(bgUniforms.time, time);
-  glBg.uniform1f(bgUniforms.intensity, intensity);
-  glBg.uniform3fv(bgUniforms.colorA, VICTORIA.viridian);
-  glBg.uniform3fv(bgUniforms.colorB, VICTORIA.midnight);
-  glBg.uniform3fv(bgUniforms.bgColor, VICTORIA.bg);
-  glBg.drawArrays(glBg.TRIANGLES, 0, 6);
-}
-
-const IDLE_STATIC = { x: 0, y: 0, scale: 1 };
-const EXPR_STATIC = { gazeX: 0, gazeY: 0, browLift: 0, browAsym: 0, mouthTension: 0 };
-let loopEnabled = true;
-let sourceVolumePercent = 80;
-let sourceMode = 'none';
-const sourceVideo = document.getElementById('sourceVideo');
-let sourceImage = null;
-let sourceObjectUrl = null;
-let sourceNaturalW = 0;
-let sourceNaturalH = 0;
-let sourceLoading = false;
-let videoPlaybackComplete = false;
-let videoTexReady = false;
-let isSeeking = false;
-
-let shaderMode = 'ascii';
-let paletteMode = 0;
-let colorPreset = 0;
-let playbackSpeed = 1.0;
-let cellSize = 8;
-let tintStr = 0.6;
-let brightness = 1.4;
-let glitchAmt = 0.2;
-let chromaAmt = 0.0;
-let crtStrength = 0.0;
-let glowStrength = 0.0;
-let interfStrength = 0.0;
-let interferenceEnabled = false;
-let vhsStrength = 0.0;
-let vhsEnabled = false;
-let rainStrength = 0.0;
-let rainEnabled = false;
-let sortStrength = 0.0;
-let sortThreshold = 0.5;
-let pixelSortEnabled = false;
-
-// ── Char layer WebGL2 pipeline ──────────────────────────────────────────────
-glChar = webglCanvas.getContext('webgl2', { premultipliedAlpha: false, alpha: true });
-let quadBuf;
-
-let pass1Prog, pass1Uni;
-let passAsciiProg, passAsciiUni;
-let passDitherProg, passDitherUni;
-let passSortProg, passSortUni;
-let pass3Prog, pass3Uni;
-
-let texSrc, texNoise, texBgUpload, texPass1, texPass2, texPass3;
-let fbo1, fbo2, fbo3;
-let texW = 0, texH = 0;
-
-let asciiAtlasTex = null;
-let asciiAtlasChars = 0;
-
-function buildAsciiAtlas(cellPx) {
-  if (!glChar) return;
-  const c = Math.max(4, cellPx | 0);
-  const n = DENSITY.length;
-  const cv = document.createElement('canvas');
-  cv.width = c * n;
-  cv.height = Math.ceil(c * 1.25);
-  const cx = cv.getContext('2d');
-  cx.fillStyle = '#000';
-  cx.fillRect(0, 0, cv.width, cv.height);
-  cx.fillStyle = '#fff';
-  cx.font = `${c}px 'Share Tech Mono', monospace`;
-  cx.textBaseline = 'top';
-  for (let i = 0; i < n; i++) {
-    cx.fillText(DENSITY[i], i * c + 1, 2);
-  }
-  if (!asciiAtlasTex) asciiAtlasTex = glChar.createTexture();
-  glChar.bindTexture(glChar.TEXTURE_2D, asciiAtlasTex);
-  glChar.pixelStorei(glChar.UNPACK_FLIP_Y_WEBGL, true);
-  glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, glChar.RGBA, glChar.UNSIGNED_BYTE, cv);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MIN_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MAG_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_S, glChar.CLAMP_TO_EDGE);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_T, glChar.CLAMP_TO_EDGE);
-  asciiAtlasChars = n;
-}
-
-function buildNoiseTexture() {
-  if (!glChar) return;
-  const sz = 256;
-  const data = new Uint8Array(sz * sz * 4);
-  for (let i = 0; i < sz * sz; i++) {
-    const v = (Math.random() * 255) | 0;
-    data[i * 4] = v;
-    data[i * 4 + 1] = v;
-    data[i * 4 + 2] = v;
-    data[i * 4 + 3] = 255;
-  }
-  if (!texNoise) texNoise = glChar.createTexture();
-  glChar.bindTexture(glChar.TEXTURE_2D, texNoise);
-  glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, sz, sz, 0, glChar.RGBA, glChar.UNSIGNED_BYTE, data);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MIN_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MAG_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_S, glChar.REPEAT);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_T, glChar.REPEAT);
-}
-
-const QUAD_VERT = `#version 300 es
-in vec2 a_pos;
-out vec2 v_uv;
-out vec2 v_screenUv;
-uniform vec2 u_canvasRes;
-uniform vec2 u_idlePx;
-uniform float u_idleScale;
-uniform vec2 u_exprUV;
-uniform float u_browLift;
-uniform float u_browAsym;
-uniform float u_blink;
-uniform float u_mouthTension;
-
-void main() {
-  vec2 uv = a_pos * 0.5 + 0.5;
-  v_screenUv = uv;
-  vec2 c = uv - 0.5;
-  float blinkS = mix(0.88, 1.0, clamp(u_blink, 0.0, 1.0));
-  c.y /= blinkS;
-  // IdleController x/y/scale: pans/scales UV sampling (video + image texture).
-  c /= max(u_idleScale, 0.0001);
-  c -= u_idlePx / u_canvasRes;
-  vec2 uv2 = c + 0.5;
-  uv2 += u_exprUV * 0.025;
-  float br = clamp(u_browLift, -1.0, 1.0);
-  float ba = clamp(u_browAsym, -1.0, 1.0);
-  if (uv2.y < 0.52) {
-    float t = (0.52 - uv2.y) / 0.52;
-    uv2.y += br * 0.04 * t;
-    uv2.x += ba * 0.03 * t;
-  }
-  float mt = clamp(u_mouthTension, 0.0, 1.0);
-  if (uv2.y > 0.5) {
-    float ly = (uv2.y - 0.5) / 0.5;
-    ly = pow(ly, mix(1.0, 1.35, mt));
-    uv2.y = 0.5 + ly * 0.5;
-  }
-  v_uv = clamp(uv2, 0.0, 1.0);
-  gl_Position = vec4(a_pos, 0.0, 1.0);
-}`;
-
-const PASS1_FRAG = `#version 300 es
-precision highp float;
-in vec2 v_uv;
-in vec2 v_screenUv;
-out vec4 fragColor;
-uniform sampler2D u_src;
-uniform sampler2D u_noise;
-uniform vec2 u_res;
-uniform vec2 u_canvasRes;
-uniform vec2 u_idlePx;
-uniform float u_idleScale;
-uniform vec2 u_exprUV;
-uniform float u_browLift;
-uniform float u_browAsym;
-uniform float u_blink;
-uniform float u_mouthTension;
-uniform float u_time;
-uniform float u_hasSource;
-uniform float u_tint;
-uniform float u_brightness;
-uniform float u_glitch;
-uniform float u_chromaAmt;
-uniform vec2 u_sourceAspect;
-uniform int u_paletteMode;
-uniform int u_colorPreset;
-
-vec3 presetShadow() {
-  if (u_colorPreset == 1) return vec3(0.020, 0.028, 0.065);
-  if (u_colorPreset == 2) return vec3(0.080, 0.040, 0.010);
-  if (u_colorPreset == 3) return vec3(0.060, 0.015, 0.025);
-  if (u_colorPreset == 4) return vec3(0.070, 0.075, 0.085);
-  return vec3(0.102, 0.102, 0.180);
-}
-
-vec3 palette(float l) {
-  vec3 shadow, mid, hi, accent;
-
-  if (u_colorPreset == 1) {
-    shadow = vec3(0.020, 0.028, 0.065);
-    mid    = vec3(0.106, 0.227, 0.420);
-    hi     = vec3(0.420, 0.720, 0.920);
-    accent = vec3(0.106, 0.227, 0.420);
-  } else if (u_colorPreset == 2) {
-    shadow = vec3(0.080, 0.040, 0.010);
-    mid    = vec3(0.720, 0.380, 0.060);
-    hi     = vec3(1.000, 0.780, 0.220);
-    accent = vec3(0.720, 0.380, 0.060);
-  } else if (u_colorPreset == 3) {
-    shadow = vec3(0.060, 0.015, 0.025);
-    mid    = vec3(0.520, 0.060, 0.080);
-    hi     = vec3(1.000, 0.180, 0.120);
-    accent = vec3(0.520, 0.060, 0.080);
-  } else if (u_colorPreset == 4) {
-    shadow = vec3(0.070, 0.075, 0.085);
-    mid    = vec3(0.420, 0.435, 0.450);
-    hi     = vec3(0.920, 0.935, 0.950);
-    accent = vec3(0.420, 0.435, 0.450);
-  } else {
-    shadow = vec3(0.102, 0.102, 0.180);
-    mid    = vec3(0.180, 0.490, 0.420);
-    hi     = vec3(0.722, 0.588, 0.243);
-    accent = vec3(0.180, 0.490, 0.420);
-  }
-
-  float t  = smoothstep(0.02, 0.68, l);
-  float t2 = smoothstep(0.62, 1.0, l);
-  vec3 col = mix(shadow, mid, t);
-  col = mix(col, hi, t2 * t2);
-  col = mix(col, accent, u_tint * 0.35);
-  return col;
-}
-
-vec3 thermalPalette(float l) {
-  vec3 black  = vec3(0.000, 0.000, 0.000);
-  vec3 purple = vec3(0.280, 0.000, 0.420);
-  vec3 red    = vec3(0.900, 0.050, 0.080);
-  vec3 orange = vec3(0.980, 0.420, 0.060);
-  vec3 white  = vec3(1.000, 0.980, 0.920);
-
-  vec3 col = black;
-  col = mix(col, purple, smoothstep(0.00, 0.20, l));
-  col = mix(col, red,    smoothstep(0.20, 0.45, l));
-  col = mix(col, orange, smoothstep(0.45, 0.70, l));
-  col = mix(col, white,  smoothstep(0.70, 1.00, l));
-  return col;
-}
-
-vec3 nightVisionPalette(float l) {
-  vec3 dark   = vec3(0.000, 0.020, 0.031);
-  vec3 mid    = vec3(0.051, 0.400, 0.188);
-  vec3 bright = vec3(0.000, 1.000, 0.255);
-  float t  = smoothstep(0.02, 0.55, l);
-  float t2 = smoothstep(0.50, 1.00, l);
-  vec3 col = mix(dark, mid, t);
-  col = mix(col, bright, t2 * t2);
-  return col;
-}
-
-void main() {
-  if (u_hasSource < 0.5) {
-    fragColor = vec4(0.0);
+  if (state.effect === 'off') {
+    aikaCanvas.style.display = 'none';
     return;
   }
+  aikaCanvas.style.display = 'block';
 
-  // Aspect-correct letterbox/pillarbox *only* for the source texture.
-  // u_sourceAspect = vec2(sourceW/canvasW, sourceH/canvasH)
-  float relA = max(u_sourceAspect.x / max(u_sourceAspect.y, 0.0001), 0.0001);
-  vec2 size = vec2(1.0);
-  if (relA > 1.0) size.y = 1.0 / relA;  // wider → reduce height (letterbox)
-  else            size.x = relA;        // taller → reduce width (pillarbox)
+  const vw = aikavid.videoWidth;
+  const vh = aikavid.videoHeight;
+  aikaCanvas.width = vw;
+  aikaCanvas.height = vh;
 
-  vec2 minUv = (1.0 - size) * 0.5;
-  // Use screen-space UVs for centering, so idle panning doesn't skew the bars.
-  vec2 baseUv = (v_screenUv - minUv) / size;
-  if (baseUv.x < 0.0 || baseUv.x > 1.0 || baseUv.y < 0.0 || baseUv.y > 1.0) {
-    vec3 barCol = u_paletteMode == 1 ? vec3(0.0)
-                : u_paletteMode == 2 ? vec3(0.0, 0.02, 0.03)
-                : presetShadow();
-    fragColor = vec4(barCol, 1.0);
-    return;
-  }
+  const ctx = aikaCanvas.getContext('2d');
+  const s = ensureSampleCanvas(vw, vh);
 
-  // Apply the same transform stack as the quad vertex shader, but *after* the
-  // aspect-fit mapping, so the fitted source stays perfectly centered.
-  vec2 uv = baseUv;
-  vec2 c = uv - 0.5;
-  float blinkS = mix(0.88, 1.0, clamp(u_blink, 0.0, 1.0));
-  c.y /= blinkS;
-  c /= max(u_idleScale, 0.0001);
-  c -= u_idlePx / max(u_canvasRes, vec2(1.0));
-  vec2 uv2 = c + 0.5;
-  uv2 += u_exprUV * 0.025;
-  float br = clamp(u_browLift, -1.0, 1.0);
-  float ba = clamp(u_browAsym, -1.0, 1.0);
-  if (uv2.y < 0.52) {
-    float t = (0.52 - uv2.y) / 0.52;
-    uv2.y += br * 0.04 * t;
-    uv2.x += ba * 0.03 * t;
-  }
-  float mt = clamp(u_mouthTension, 0.0, 1.0);
-  if (uv2.y > 0.5) {
-    float ly = (uv2.y - 0.5) / 0.5;
-    ly = pow(ly, mix(1.0, 1.35, mt));
-    uv2.y = 0.5 + ly * 0.5;
-  }
-  vec2 suv = clamp(uv2, 0.0, 1.0);
-
-  vec2 texel = 1.0 / u_res;
-  float ca = u_chromaAmt * 12.0;
-  float r = texture(u_src, clamp(suv - vec2(ca * texel.x, 0.0), 0.0, 1.0)).r;
-  float g = texture(u_src, suv).g;
-  float b = texture(u_src, clamp(suv + vec2(ca * texel.x, 0.0), 0.0, 1.0)).b;
-  vec3 rgb = vec3(r, g, b);
-  float luma = dot(rgb, vec3(0.299, 0.587, 0.114));
-  luma *= max(u_brightness, 0.0);
-  luma = clamp(luma, 0.0, 1.0);
-  // Gamma < 1 brightens midtones without blowing highlights.
-  luma = pow(luma, 0.75);
-  vec3 mapped = u_paletteMode == 1 ? thermalPalette(luma)
-              : u_paletteMode == 2 ? nightVisionPalette(luma)
-              : palette(luma);
-  vec2 nuv = suv * vec2(128.0, 128.0) + u_time * 0.07;
-  float n = texture(u_noise, fract(nuv) + fract(vec2(u_time * 0.13, u_time * 0.09))).r;
-  if (u_paletteMode == 2) {
-    float nvGrain = (n - 0.5) * (0.22 + u_glitch * 0.12);
-    mapped += vec3(nvGrain * 0.1, nvGrain, nvGrain * 0.2);
-    vec2 vc = v_screenUv - 0.5;
-    float nvVig = 1.0 - dot(vc, vc) * 3.2;
-    nvVig = clamp(nvVig, 0.0, 1.0);
-    mapped *= nvVig;
-    float nvScan = 0.75 + 0.25 * sin(v_screenUv.y * u_canvasRes.y * 3.14159 * 2.0);
-    mapped *= nvScan;
-    float g2 = texture(u_noise, suv * 6.0 + u_time).r;
-    if (u_glitch > 0.05 && g2 > 1.0 - u_glitch * 0.08) {
-      mapped += vec3(0.0, 0.15, 0.05) * u_glitch;
-    }
-  } else {
-    mapped += (n - 0.5) * (0.06 + u_glitch * 0.12);
-    float g2 = texture(u_noise, suv * 6.0 + u_time).r;
-    if (u_glitch > 0.05 && g2 > 1.0 - u_glitch * 0.08) {
-      mapped += vec3(0.04, 0.08, 0.06) * u_glitch;
-    }
-  }
-  fragColor = vec4(mapped, 1.0);
-}`;
-
-const PASS_ASCII_FRAG = `#version 300 es
-precision highp float;
-in vec2 v_uv;
-out vec4 fragColor;
-uniform sampler2D u_pass1;
-uniform sampler2D u_atlas;
-uniform vec2 u_res;
-uniform float u_cell;
-uniform int u_atlasChars;
-
-void main() {
-  vec2 px = v_uv * u_res;
-  float cell = max(u_cell, 2.0);
-  vec2 cellId = floor(px / cell);
-  vec2 ctr = (cellId + 0.5) * cell / u_res;
-  vec4 base = texture(u_pass1, ctr);
-  float l = dot(base.rgb, vec3(0.299, 0.587, 0.114));
-  float idxf = clamp(l * float(u_atlasChars), 0.0, float(u_atlasChars - 1));
-  int idx = int(idxf);
-  vec2 local = fract(px / cell);
-  float u = (float(idx) + local.x) / float(u_atlasChars);
-  float v = local.y;
-  vec3 gmask = texture(u_atlas, vec2(u, v)).rgb;
-  float m = (gmask.r + gmask.g + gmask.b) / 3.0;
-  vec3 col = base.rgb * (0.28 + 0.72 * m);
-  fragColor = vec4(col, base.a);
-}`;
-
-const PASS_DITHER_FRAG = `#version 300 es
-precision highp float;
-in vec2 v_uv;
-out vec4 fragColor;
-uniform sampler2D u_pass1;
-uniform vec2 u_res;
-uniform float u_cell;
-uniform int u_colorPreset;
-
-vec3 presetShadow() {
-  if (u_colorPreset == 1) return vec3(0.020, 0.028, 0.065);
-  if (u_colorPreset == 2) return vec3(0.080, 0.040, 0.010);
-  if (u_colorPreset == 3) return vec3(0.060, 0.015, 0.025);
-  if (u_colorPreset == 4) return vec3(0.070, 0.075, 0.085);
-  return vec3(0.102, 0.102, 0.180);
-}
-
-void main() {
-  const float bayer[16] = float[16](
-     0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-    12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
-     3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-    15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
-  );
-
-  vec4 base = texture(u_pass1, v_uv);
-  float l = dot(base.rgb, vec3(0.299, 0.587, 0.114));
-
-  vec2 px = v_uv * u_res;
-  float cell = max(u_cell, 2.0);
-  vec2 cellId = floor(px / cell);
-  int bx = int(mod(cellId.x, 4.0));
-  int by = int(mod(cellId.y, 4.0));
-  float threshold = bayer[by * 4 + bx];
-
-  vec3 shadow = presetShadow();
-  vec3 col = (l > threshold) ? base.rgb : shadow;
-  fragColor = vec4(col, base.a);
-}`;
-
-const PASS_SORT_FRAG = `#version 300 es
-precision highp float;
-in vec2 v_uv;
-out vec4 fragColor;
-uniform sampler2D u_fgTex;
-uniform vec2 u_res;
-uniform float u_sortStrength;
-uniform float u_sortThreshold;
-uniform float u_time;
-
-void main() {
-  vec4 original = texture(u_fgTex, v_uv);
-  vec2 px = 1.0 / u_res;
-  int dir = int(mod(floor(u_time * 0.5), 2.0));
-
-  vec3 brightest = vec3(0.0);
-  float maxL = -1.0;
-  for (int i = 0; i < 16; i++) {
-    float fi = float(i);
-    float yOff = fi * px.y;
-    if (dir == 0) {
-      yOff = -fi * px.y;
-    }
-    vec2 suv = clamp(v_uv + vec2(0.0, yOff), 0.0, 1.0);
-    vec4 s = texture(u_fgTex, suv);
-    float L = dot(s.rgb, vec3(0.299, 0.587, 0.114));
-    if (L > maxL) {
-      maxL = L;
-      brightest = s.rgb;
-    }
-  }
-
-  float Lorig = dot(original.rgb, vec3(0.299, 0.587, 0.114));
-  float weight = smoothstep(u_sortThreshold - 0.1, u_sortThreshold + 0.1, Lorig);
-  vec3 outCol = mix(original.rgb, brightest, weight * u_sortStrength);
-  fragColor = vec4(outCol, original.a);
-}`;
-
-const PASS3_FRAG = `#version 300 es
-precision highp float;
-in vec2 v_uv;
-out vec4 fragColor;
-uniform sampler2D u_fg;
-uniform sampler2D u_bgTex;
-uniform vec2 u_res;
-uniform float u_crtStrength;
-uniform float u_glowStrength;
-uniform float u_time;
-uniform float u_interfStrength;
-uniform float u_vhsStrength;
-uniform float u_rainStrength;
-uniform sampler2D u_noise;
-
-void main() {
-  vec2 uv = v_uv - 0.5;
-  uv = uv * (1.0 + u_crtStrength * 0.8 * dot(uv, uv));
-  vec2 sampleUv = uv + 0.5;
-
-  if (u_crtStrength > 0.0 && (
-      sampleUv.x < 0.0 || sampleUv.x > 1.0 ||
-      sampleUv.y < 0.0 || sampleUv.y > 1.0)) {
-    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    return;
-  }
-
-  vec4 bg = texture(u_bgTex, sampleUv);
-  vec4 fg = texture(u_fg, sampleUv);
-  vec3 color;
-  if (fg.a < 0.001) {
-    color = bg.rgb;
-  } else {
-    float lum = dot(fg.rgb, vec3(0.299, 0.587, 0.114));
-    float t = smoothstep(0.0, 0.15, lum);
-    vec3 mult = clamp(bg.rgb * fg.rgb * 1.85, 0.0, 1.0);
-    color = mix(mult, fg.rgb, t);
-  }
-
-  vec2 px = 1.0 / u_res;
-  vec2 offsets[8] = vec2[8](
-    vec2(-1.5, 0.0), vec2(1.5, 0.0),
-    vec2(0.0, -1.5), vec2(0.0, 1.5),
-    vec2(-4.0, 0.0), vec2(4.0, 0.0),
-    vec2(0.0, -4.0), vec2(0.0, 4.0)
-  );
-  vec3 bloom = vec3(0.0);
-  for (int i = 0; i < 8; i++) {
-    vec4 s = texture(u_fg, sampleUv + offsets[i] * px);
-    float L = dot(s.rgb, vec3(0.299, 0.587, 0.114));
-    float w = smoothstep(0.52, 0.68, L) * s.a;
-    bloom += s.rgb * w;
-  }
-  bloom /= 8.0;
-  vec3 phosphorTint = vec3(0.180, 0.490, 0.420);
-  bloom = mix(bloom, bloom * phosphorTint * 2.0, 0.5);
-  color += bloom * u_glowStrength * 1.8;
-
-  if (u_vhsStrength > 0.0) {
-    float lineY = v_uv.y;
-    float wobble = sin(lineY * 120.0 + u_time * 3.5) * 0.4
-                 + sin(lineY * 44.0  + u_time * 1.8) * 0.6;
-
-    float edge = pow(abs(lineY - 0.5) * 2.0, 2.5);
-    float xOffset = wobble * edge * u_vhsStrength * 4.0 * px.x;
-
-    float tearSeed = floor(u_time * 8.0);
-    float tearRng  = fract(sin(tearSeed * 127.1) * 43758.5453);
-    float tearY    = fract(sin(tearSeed * 311.7) * 43758.5453);
-    float tearBand = smoothstep(0.012, 0.0, abs(lineY - tearY));
-    float tearAmt  = step(0.92, tearRng) * tearBand
-                     * u_vhsStrength * 0.06;
-
-    float vertDrift = sin(u_time * 0.4) * u_vhsStrength * 2.0 * px.y;
-
-    vec2 vhsUv = sampleUv + vec2(xOffset + tearAmt, vertDrift);
-    vhsUv = clamp(vhsUv, 0.0, 1.0);
-
-    vec4 fgVhs = texture(u_fg, vhsUv);
-    vec4 bgVhs = texture(u_bgTex, vhsUv);
-
-    vec3 vhsColor;
-    if (fgVhs.a < 0.001) {
-      vhsColor = bgVhs.rgb;
-    } else {
-      float lum = dot(fgVhs.rgb, vec3(0.299, 0.587, 0.114));
-      float blend = smoothstep(0.0, 0.15, lum);
-      vhsColor = mix(bgVhs.rgb, fgVhs.rgb, blend + fgVhs.a * 0.6);
-    }
-
-    float warpMag = abs(xOffset) / (4.0 * px.x * u_vhsStrength + 0.001);
-    float desat = clamp(warpMag * 1.5, 0.0, 0.85) * u_vhsStrength;
-    float vhsLum = dot(vhsColor, vec3(0.299, 0.587, 0.114));
-    vhsColor = mix(vhsColor, vec3(vhsLum), desat);
-
-    float vhsBlend = u_vhsStrength * (0.4 + edge * 0.6);
-    color = mix(color, vhsColor, clamp(vhsBlend, 0.0, 1.0));
-  }
-
-  if (u_interfStrength > 0.0) {
-    float bandPhase = sampleUv.y * 3.0 - u_time * 0.18;
-    float band = 0.5 + 0.5 * sin(bandPhase * 6.28318);
-    float dark = smoothstep(0.30, 0.70, band);
-    color *= mix(1.0, 0.45, dark * u_interfStrength);
-
-    float flashSeed = floor(u_time * 2.5);
-    float flashRng  = fract(sin(flashSeed * 43758.5453) * 43758.5453);
-    float flashY    = fract(sin(flashSeed * 12.9898) * 43758.5453);
-    float flashBand = smoothstep(0.04, 0.0, abs(sampleUv.y - flashY));
-    float flashOn   = step(0.85, flashRng);
-    color += vec3(0.180, 0.490, 0.420) * flashBand * flashOn
-             * u_interfStrength * 1.2;
-
-    float bandGrad = cos(bandPhase * 6.28318);
-    float disp = bandGrad * dark * u_interfStrength * 3.0;
-    vec4 fgShift = texture(u_fg, sampleUv + vec2(disp * px.x, 0.0));
-    color = mix(color, fgShift.rgb, dark * u_interfStrength * 0.3);
-  }
-
-  if (u_rainStrength > 0.0) {
-    float streakMask = 0.0;
-
-    for (int i = 0; i < 3; i++) {
-      float fi = float(i);
-      float density = 18.0 + fi * 22.0;
-      float speed   = 0.4  + fi * 0.25;
-      float width   = 0.003 - fi * 0.0006;
-
-      float col  = floor(v_uv.x * density);
-      float hash = fract(sin(col * 127.1 + fi * 311.7) * 43758.5453);
-      hash += (texture(u_noise, vec2(col * 0.08, v_uv.y * 4.0 + u_time * speed)).r - 0.5) * 0.12;
-
-      float streakY = fract(v_uv.y + hash + u_time * speed);
-
-      float streak = smoothstep(width, 0.0, abs(fract(v_uv.x * density) - 0.5)
-                                / density * u_res.x)
-                   * smoothstep(0.0, 0.08, streakY)
-                   * smoothstep(0.35, 0.08, streakY);
-
-      streakMask += streak * (0.5 + hash * 0.5);
-    }
-    streakMask = clamp(streakMask, 0.0, 1.0);
-
-    vec3 streakColor = color * 1.3 + vec3(0.02, 0.04, 0.06);
-    color = mix(color, streakColor, streakMask * u_rainStrength * 0.7);
-
-    for (int d = 0; d < 4; d++) {
-      float fd = float(d);
-      float timeSeed = floor(u_time * 0.8 + fd * 1.3);
-      float dx = fract(sin(timeSeed * 127.1 + fd * 43.7) * 43758.5453);
-      float dy = fract(sin(timeSeed * 311.7 + fd * 91.3) * 43758.5453);
-      float radius = 0.025 + fract(sin(timeSeed * 74.9) * 43758.5453) * 0.04;
-
-      float life = fract(u_time * 0.8 + fd * 0.25);
-      float alpha = smoothstep(0.0, 0.3, life) * smoothstep(1.0, 0.7, life);
-
-      vec2 dropPos = vec2(dx, dy);
-      float aspect = u_res.x / u_res.y;
-      vec2 diff = (v_uv - dropPos) * vec2(aspect, 1.0);
-      float dist = length(diff);
-
-      float rim     = smoothstep(radius, radius * 0.7, dist)
-                    * smoothstep(radius * 0.5, radius, dist);
-      float center  = smoothstep(radius * 0.4, 0.0, dist);
-
-      color -= vec3(0.12) * rim    * alpha * u_rainStrength;
-      color += vec3(0.08) * center * alpha * u_rainStrength;
-    }
-  }
-
-  float scan = 0.86 + 0.14 * sin(sampleUv.y * u_res.y * 3.14159 * 2.0);
-  color *= scan;
-
-  float vig;
-  if (u_crtStrength > 0.0) {
-    vec2 uvCenter = v_uv - 0.5;
-    float vigR = dot(uvCenter, uvCenter);
-    vig = 1.0 - vigR * (1.28 + u_crtStrength * 1.5);
-    vig = clamp(vig, 0.0, 1.0);
-  } else {
-    vec2 c = v_uv - 0.5;
-    vig = clamp(1.0 - dot(c, c) * 1.28, 0.0, 1.0);
-  }
-  color *= vig;
-  fragColor = vec4(color, 1.0);
-}`;
-
-function initCharPipeline() {
-  if (!glChar) return;
-
-  quadBuf = glChar.createBuffer();
-  glChar.bindBuffer(glChar.ARRAY_BUFFER, quadBuf);
-  glChar.bufferData(glChar.ARRAY_BUFFER, new Float32Array([
-    -1,-1,  1,-1,  -1,1,
-     1,-1,  1, 1,  -1,1,
-  ]), glChar.STATIC_DRAW);
-
-  const vsQuad = compileShader(glChar, glChar.VERTEX_SHADER, QUAD_VERT);
-  pass1Prog = linkProgram(glChar, vsQuad, compileShader(glChar, glChar.FRAGMENT_SHADER, PASS1_FRAG));
-  passAsciiProg = linkProgram(glChar, compileShader(glChar, glChar.VERTEX_SHADER, QUAD_VERT), compileShader(glChar, glChar.FRAGMENT_SHADER, PASS_ASCII_FRAG));
-  passDitherProg = linkProgram(glChar, compileShader(glChar, glChar.VERTEX_SHADER, QUAD_VERT), compileShader(glChar, glChar.FRAGMENT_SHADER, PASS_DITHER_FRAG));
-  passSortProg = linkProgram(glChar, compileShader(glChar, glChar.VERTEX_SHADER, QUAD_VERT), compileShader(glChar, glChar.FRAGMENT_SHADER, PASS_SORT_FRAG));
-  pass3Prog = linkProgram(glChar, compileShader(glChar, glChar.VERTEX_SHADER, QUAD_VERT), compileShader(glChar, glChar.FRAGMENT_SHADER, PASS3_FRAG));
-
-  pass1Uni = {
-    a_pos: glChar.getAttribLocation(pass1Prog, 'a_pos'),
-    canvasRes: glChar.getUniformLocation(pass1Prog, 'u_canvasRes'),
-    idlePx: glChar.getUniformLocation(pass1Prog, 'u_idlePx'),
-    idleScale: glChar.getUniformLocation(pass1Prog, 'u_idleScale'),
-    exprUV: glChar.getUniformLocation(pass1Prog, 'u_exprUV'),
-    browLift: glChar.getUniformLocation(pass1Prog, 'u_browLift'),
-    browAsym: glChar.getUniformLocation(pass1Prog, 'u_browAsym'),
-    blink: glChar.getUniformLocation(pass1Prog, 'u_blink'),
-    mouthTension: glChar.getUniformLocation(pass1Prog, 'u_mouthTension'),
-    src: glChar.getUniformLocation(pass1Prog, 'u_src'),
-    noise: glChar.getUniformLocation(pass1Prog, 'u_noise'),
-    res: glChar.getUniformLocation(pass1Prog, 'u_res'),
-    time: glChar.getUniformLocation(pass1Prog, 'u_time'),
-    hasSource: glChar.getUniformLocation(pass1Prog, 'u_hasSource'),
-    tint: glChar.getUniformLocation(pass1Prog, 'u_tint'),
-    brightness: glChar.getUniformLocation(pass1Prog, 'u_brightness'),
-    glitch: glChar.getUniformLocation(pass1Prog, 'u_glitch'),
-    chromaAmt: glChar.getUniformLocation(pass1Prog, 'u_chromaAmt'),
-    sourceAspect: glChar.getUniformLocation(pass1Prog, 'u_sourceAspect'),
-    paletteMode: glChar.getUniformLocation(pass1Prog, 'u_paletteMode'),
-    colorPreset: glChar.getUniformLocation(pass1Prog, 'u_colorPreset'),
-  };
-
-  passAsciiUni = {
-    a_pos: glChar.getAttribLocation(passAsciiProg, 'a_pos'),
-    canvasRes: glChar.getUniformLocation(passAsciiProg, 'u_canvasRes'),
-    idlePx: glChar.getUniformLocation(passAsciiProg, 'u_idlePx'),
-    idleScale: glChar.getUniformLocation(passAsciiProg, 'u_idleScale'),
-    exprUV: glChar.getUniformLocation(passAsciiProg, 'u_exprUV'),
-    browLift: glChar.getUniformLocation(passAsciiProg, 'u_browLift'),
-    browAsym: glChar.getUniformLocation(passAsciiProg, 'u_browAsym'),
-    blink: glChar.getUniformLocation(passAsciiProg, 'u_blink'),
-    mouthTension: glChar.getUniformLocation(passAsciiProg, 'u_mouthTension'),
-    pass1: glChar.getUniformLocation(passAsciiProg, 'u_pass1'),
-    atlas: glChar.getUniformLocation(passAsciiProg, 'u_atlas'),
-    res: glChar.getUniformLocation(passAsciiProg, 'u_res'),
-    cell: glChar.getUniformLocation(passAsciiProg, 'u_cell'),
-    atlasChars: glChar.getUniformLocation(passAsciiProg, 'u_atlasChars'),
-  };
-
-  passDitherUni = {
-    a_pos: glChar.getAttribLocation(passDitherProg, 'a_pos'),
-    canvasRes: glChar.getUniformLocation(passDitherProg, 'u_canvasRes'),
-    idlePx: glChar.getUniformLocation(passDitherProg, 'u_idlePx'),
-    idleScale: glChar.getUniformLocation(passDitherProg, 'u_idleScale'),
-    exprUV: glChar.getUniformLocation(passDitherProg, 'u_exprUV'),
-    browLift: glChar.getUniformLocation(passDitherProg, 'u_browLift'),
-    browAsym: glChar.getUniformLocation(passDitherProg, 'u_browAsym'),
-    blink: glChar.getUniformLocation(passDitherProg, 'u_blink'),
-    mouthTension: glChar.getUniformLocation(passDitherProg, 'u_mouthTension'),
-    pass1: glChar.getUniformLocation(passDitherProg, 'u_pass1'),
-    res: glChar.getUniformLocation(passDitherProg, 'u_res'),
-    cell: glChar.getUniformLocation(passDitherProg, 'u_cell'),
-    colorPreset: glChar.getUniformLocation(passDitherProg, 'u_colorPreset'),
-  };
-
-  passSortUni = {
-    a_pos: glChar.getAttribLocation(passSortProg, 'a_pos'),
-    canvasRes: glChar.getUniformLocation(passSortProg, 'u_canvasRes'),
-    idlePx: glChar.getUniformLocation(passSortProg, 'u_idlePx'),
-    idleScale: glChar.getUniformLocation(passSortProg, 'u_idleScale'),
-    exprUV: glChar.getUniformLocation(passSortProg, 'u_exprUV'),
-    browLift: glChar.getUniformLocation(passSortProg, 'u_browLift'),
-    browAsym: glChar.getUniformLocation(passSortProg, 'u_browAsym'),
-    blink: glChar.getUniformLocation(passSortProg, 'u_blink'),
-    mouthTension: glChar.getUniformLocation(passSortProg, 'u_mouthTension'),
-    fgTex: glChar.getUniformLocation(passSortProg, 'u_fgTex'),
-    res: glChar.getUniformLocation(passSortProg, 'u_res'),
-    sortStrength: glChar.getUniformLocation(passSortProg, 'u_sortStrength'),
-    sortThreshold: glChar.getUniformLocation(passSortProg, 'u_sortThreshold'),
-    time: glChar.getUniformLocation(passSortProg, 'u_time'),
-  };
-
-  pass3Uni = {
-    a_pos: glChar.getAttribLocation(pass3Prog, 'a_pos'),
-    canvasRes: glChar.getUniformLocation(pass3Prog, 'u_canvasRes'),
-    idlePx: glChar.getUniformLocation(pass3Prog, 'u_idlePx'),
-    idleScale: glChar.getUniformLocation(pass3Prog, 'u_idleScale'),
-    exprUV: glChar.getUniformLocation(pass3Prog, 'u_exprUV'),
-    browLift: glChar.getUniformLocation(pass3Prog, 'u_browLift'),
-    browAsym: glChar.getUniformLocation(pass3Prog, 'u_browAsym'),
-    blink: glChar.getUniformLocation(pass3Prog, 'u_blink'),
-    mouthTension: glChar.getUniformLocation(pass3Prog, 'u_mouthTension'),
-    fg: glChar.getUniformLocation(pass3Prog, 'u_fg'),
-    bgTex: glChar.getUniformLocation(pass3Prog, 'u_bgTex'),
-    res: glChar.getUniformLocation(pass3Prog, 'u_res'),
-    crtStrength: glChar.getUniformLocation(pass3Prog, 'u_crtStrength'),
-    glowStrength: glChar.getUniformLocation(pass3Prog, 'u_glowStrength'),
-    time: glChar.getUniformLocation(pass3Prog, 'u_time'),
-    interfStrength: glChar.getUniformLocation(pass3Prog, 'u_interfStrength'),
-    vhsStrength: glChar.getUniformLocation(pass3Prog, 'u_vhsStrength'),
-    rainStrength: glChar.getUniformLocation(pass3Prog, 'u_rainStrength'),
-    noise: glChar.getUniformLocation(pass3Prog, 'u_noise'),
-  };
-
-  texSrc = glChar.createTexture();
-  glChar.bindTexture(glChar.TEXTURE_2D, texSrc);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MIN_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MAG_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_S, glChar.CLAMP_TO_EDGE);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_T, glChar.CLAMP_TO_EDGE);
-
-  texBgUpload = glChar.createTexture();
-  glChar.bindTexture(glChar.TEXTURE_2D, texBgUpload);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MIN_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MAG_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_S, glChar.CLAMP_TO_EDGE);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_T, glChar.CLAMP_TO_EDGE);
-
-  buildNoiseTexture();
-  buildAsciiAtlas(cellSize);
-}
-
-function allocFbo(w, h) {
-  if (!glChar) return;
-  if (!texPass1) texPass1 = glChar.createTexture();
-  if (!texPass2) texPass2 = glChar.createTexture();
-  if (!texPass3) texPass3 = glChar.createTexture();
-  glChar.bindTexture(glChar.TEXTURE_2D, texPass1);
-  glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, w, h, 0, glChar.RGBA, glChar.UNSIGNED_BYTE, null);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MIN_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MAG_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_S, glChar.CLAMP_TO_EDGE);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_T, glChar.CLAMP_TO_EDGE);
-
-  glChar.bindTexture(glChar.TEXTURE_2D, texPass2);
-  glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, w, h, 0, glChar.RGBA, glChar.UNSIGNED_BYTE, null);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MIN_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MAG_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_S, glChar.CLAMP_TO_EDGE);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_T, glChar.CLAMP_TO_EDGE);
-
-  glChar.bindTexture(glChar.TEXTURE_2D, texPass3);
-  glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, w, h, 0, glChar.RGBA, glChar.UNSIGNED_BYTE, null);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MIN_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_MAG_FILTER, glChar.LINEAR);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_S, glChar.CLAMP_TO_EDGE);
-  glChar.texParameteri(glChar.TEXTURE_2D, glChar.TEXTURE_WRAP_T, glChar.CLAMP_TO_EDGE);
-
-  if (!fbo1) fbo1 = glChar.createFramebuffer();
-  glChar.bindFramebuffer(glChar.FRAMEBUFFER, fbo1);
-  glChar.framebufferTexture2D(glChar.FRAMEBUFFER, glChar.COLOR_ATTACHMENT0, glChar.TEXTURE_2D, texPass1, 0);
-
-  if (!fbo2) fbo2 = glChar.createFramebuffer();
-  glChar.bindFramebuffer(glChar.FRAMEBUFFER, fbo2);
-  glChar.framebufferTexture2D(glChar.FRAMEBUFFER, glChar.COLOR_ATTACHMENT0, glChar.TEXTURE_2D, texPass2, 0);
-
-  if (!fbo3) fbo3 = glChar.createFramebuffer();
-  glChar.bindFramebuffer(glChar.FRAMEBUFFER, fbo3);
-  glChar.framebufferTexture2D(glChar.FRAMEBUFFER, glChar.COLOR_ATTACHMENT0, glChar.TEXTURE_2D, texPass3, 0);
-
-  glChar.bindFramebuffer(glChar.FRAMEBUFFER, null);
-}
-
-function resizeCharPipeline(w, h) {
-  if (!glChar || w <= 0 || h <= 0) return;
-  if (w === texW && h === texH) return;
-  texW = w;
-  texH = h;
-  allocFbo(w, h);
-  buildAsciiAtlas(cellSize);
-}
-
-function bindQuadAttributes(program, uni) {
-  if (!glChar || !quadBuf) return;
-  glChar.bindBuffer(glChar.ARRAY_BUFFER, quadBuf);
-  glChar.enableVertexAttribArray(uni.a_pos);
-  glChar.vertexAttribPointer(uni.a_pos, 2, glChar.FLOAT, false, 0, 0);
-}
-
-function setTransformUniforms(uni, w, h, idleState, expr, blinkVal) {
-  if (!glChar) return;
-  glChar.uniform2f(uni.canvasRes, w, h);
-  glChar.uniform2f(uni.idlePx, idleState.x, idleState.y);
-  glChar.uniform1f(uni.idleScale, idleState.scale);
-  glChar.uniform2f(uni.exprUV, expr.gazeX ?? 0, expr.gazeY ?? 0);
-  glChar.uniform1f(uni.browLift, expr.browLift ?? 0);
-  glChar.uniform1f(uni.browAsym, expr.browAsym ?? 0);
-  glChar.uniform1f(uni.blink, blinkVal);
-  glChar.uniform1f(uni.mouthTension, expr.mouthTension ?? 0);
-}
-
-function uploadSourceTexture() {
-  if (!glChar || !texSrc) return;
-  glChar.bindTexture(glChar.TEXTURE_2D, texSrc);
-  glChar.pixelStorei(glChar.UNPACK_FLIP_Y_WEBGL, true);
-  if (sourceMode === 'video' && sourceVideo) {
-    if (sourceVideo.readyState >= 2) {
-      glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, glChar.RGBA, glChar.UNSIGNED_BYTE, sourceVideo);
-      videoTexReady = true;
-    } else if (videoTexReady) {
-      // Seeking: keep last good frame in texSrc (do not overwrite with 1x1 transparent).
-      return;
-    } else {
-      glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, 1, 1, 0, glChar.RGBA, glChar.UNSIGNED_BYTE, new Uint8Array([0,0,0,0]));
-    }
-  } else if (sourceMode === 'image' && sourceImage && sourceImage.complete) {
-    glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, glChar.RGBA, glChar.UNSIGNED_BYTE, sourceImage);
-  } else {
-    glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, 1, 1, 0, glChar.RGBA, glChar.UNSIGNED_BYTE, new Uint8Array([0,0,0,0]));
-  }
-}
-
-function renderCharPipeline(elapsed, idleState, exprParams, blinkVal) {
-  if (!glChar || !pass1Prog) return;
-
-  const w = webglCanvas.width, h = webglCanvas.height;
-  resizeCharPipeline(w, h);
-
-  const hasVisualSource = (sourceMode === 'video' || sourceMode === 'image') &&
-    ((sourceMode === 'video' && sourceVideo && (sourceVideo.readyState >= 2 || videoTexReady)) ||
-     (sourceMode === 'image' && sourceImage && sourceImage.complete));
-
-  uploadSourceTexture();
-
-  glChar.bindTexture(glChar.TEXTURE_2D, texBgUpload);
-  glChar.pixelStorei(glChar.UNPACK_FLIP_Y_WEBGL, false);
   try {
-    glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, glChar.RGBA, glChar.UNSIGNED_BYTE, bgCanvas);
-  } catch {
-    glChar.texImage2D(glChar.TEXTURE_2D, 0, glChar.RGBA, 1, 1, 0, glChar.RGBA, glChar.UNSIGNED_BYTE, new Uint8Array([26,26,46,255]));
+    s.ctx.drawImage(aikavid, 0, 0, s.w, s.h);
+  } catch (e) {
+    return;
   }
 
-  glChar.viewport(0, 0, w, h);
+  const img = s.ctx.getImageData(0, 0, s.w, s.h);
+  const data = img.data;
+  const sx = s.w / vw, sy = s.h / vh;
+  const cell = Math.max(state.effect === 'halftone' ? 2 : 4, state.size | 0);
 
-  // Pass 1
-  glChar.bindFramebuffer(glChar.FRAMEBUFFER, fbo1);
-  glChar.useProgram(pass1Prog);
-  bindQuadAttributes(pass1Prog, pass1Uni);
-  setTransformUniforms(pass1Uni, w, h, idleState, exprParams, blinkVal);
-  if (pass1Uni.sourceAspect) {
-    const sw = sourceNaturalW || (sourceMode === 'video' ? (sourceVideo?.videoWidth || 0) : (sourceImage?.naturalWidth || 0));
-    const sh = sourceNaturalH || (sourceMode === 'video' ? (sourceVideo?.videoHeight || 0) : (sourceImage?.naturalHeight || 0));
-    glChar.uniform2f(
-      pass1Uni.sourceAspect,
-      w > 0 ? (sw / w) : 1.0,
-      h > 0 ? (sh / h) : 1.0
-    );
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, vw, vh);
+
+  if (state.effect === 'halftone') {
+    const maxR = cell / 2;
+    const buckets = {};
+    for (let cy = 0; cy < vh; cy += cell) {
+      for (let cx = 0; cx < vw; cx += cell) {
+        const px = Math.min(s.w-1, ((cx+cell/2)*sx)|0);
+        const py = Math.min(s.h-1, ((cy+cell/2)*sy)|0);
+        const ii = (py*s.w+px)*4;
+        if (data[ii+3] < 10) continue;
+        const luma = (data[ii]*0.299+data[ii+1]*0.587+data[ii+2]*0.114)/255;
+        if (luma < 0.04) continue;
+        const rad = Math.max(0.5, maxR*(0.2+luma*0.8));
+        const ck = quantizeColor(data[ii], data[ii+1], data[ii+2]);
+        if (!buckets[ck]) buckets[ck] = [];
+        buckets[ck].push({ x: cx+cell/2, y: cy+cell/2, r: rad });
+      }
+    }
+    for (const col in buckets) {
+      const dots = buckets[col];
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      for (const d of dots) {
+        ctx.moveTo(d.x+d.r, d.y);
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI*2);
+      }
+      ctx.fill();
+    }
+  } else {
+    const charB = {};
+    ctx.font = `${cell}px "Share Tech Mono","Courier New",monospace`;
+    ctx.textBaseline = 'top';
+    for (let y = 0; y < vh; y += cell) {
+      for (let x = 0; x < vw; x += cell) {
+        const spx = Math.min(s.w-1, ((x+cell/2)*sx)|0);
+        const spy = Math.min(s.h-1, ((y+cell/2)*sy)|0);
+        const si = (spy*s.w+spx)*4;
+        if (data[si+3] < 10) continue;
+        const avg = (data[si]*0.299+data[si+1]*0.587+data[si+2]*0.114)/255;
+        if (avg < 0.04) continue;
+        const ch = DENSITY[DENSITY.length-1-Math.min(DENSITY.length-1,Math.floor(avg*(DENSITY.length-1)))];
+        const fill = colorForLuma(avg);
+        if (!charB[fill]) charB[fill] = [];
+        charB[fill].push({ x, y, ch });
+      }
+    }
+    for (const fill in charB) {
+      ctx.fillStyle = fill;
+      for (const g of charB[fill]) ctx.fillText(g.ch, g.x, g.y);
+    }
   }
-  glChar.activeTexture(glChar.TEXTURE0);
-  glChar.bindTexture(glChar.TEXTURE_2D, texSrc);
-  glChar.uniform1i(pass1Uni.src, 0);
-  glChar.activeTexture(glChar.TEXTURE1);
-  glChar.bindTexture(glChar.TEXTURE_2D, texNoise);
-  glChar.uniform1i(pass1Uni.noise, 1);
-  glChar.uniform2f(pass1Uni.res, w, h);
-  glChar.uniform1f(pass1Uni.time, elapsed);
-  glChar.uniform1f(pass1Uni.hasSource, hasVisualSource ? 1.0 : 0.0);
-  glChar.uniform1f(pass1Uni.tint, tintStr);
-  if (pass1Uni.paletteMode) glChar.uniform1i(pass1Uni.paletteMode, paletteMode);
-  if (pass1Uni.colorPreset) glChar.uniform1i(pass1Uni.colorPreset, colorPreset);
-  if (pass1Uni.brightness) glChar.uniform1f(pass1Uni.brightness, brightness);
-  glChar.uniform1f(pass1Uni.glitch, glitchAmt);
-  glChar.uniform1f(pass1Uni.chromaAmt, chromaAmt);
-  glChar.drawArrays(glChar.TRIANGLES, 0, 6);
-
-  let fgTex = texPass1;
-  if (shaderMode === 'ascii' && hasVisualSource) {
-    glChar.bindFramebuffer(glChar.FRAMEBUFFER, fbo2);
-    glChar.useProgram(passAsciiProg);
-    bindQuadAttributes(passAsciiProg, passAsciiUni);
-    setTransformUniforms(passAsciiUni, w, h, idleState, exprParams, blinkVal);
-    glChar.activeTexture(glChar.TEXTURE0);
-    glChar.bindTexture(glChar.TEXTURE_2D, texPass1);
-    glChar.uniform1i(passAsciiUni.pass1, 0);
-    glChar.activeTexture(glChar.TEXTURE1);
-    glChar.bindTexture(glChar.TEXTURE_2D, asciiAtlasTex);
-    glChar.uniform1i(passAsciiUni.atlas, 1);
-    glChar.uniform2f(passAsciiUni.res, w, h);
-    glChar.uniform1f(passAsciiUni.cell, cellSize);
-    glChar.uniform1i(passAsciiUni.atlasChars, asciiAtlasChars);
-    glChar.drawArrays(glChar.TRIANGLES, 0, 6);
-    fgTex = texPass2;
-  } else if (shaderMode === 'dither' && hasVisualSource) {
-    glChar.bindFramebuffer(glChar.FRAMEBUFFER, fbo2);
-    glChar.useProgram(passDitherProg);
-    bindQuadAttributes(passDitherProg, passDitherUni);
-    setTransformUniforms(passDitherUni, w, h, idleState, exprParams, blinkVal);
-    glChar.activeTexture(glChar.TEXTURE0);
-    glChar.bindTexture(glChar.TEXTURE_2D, texPass1);
-    glChar.uniform1i(passDitherUni.pass1, 0);
-    glChar.uniform2f(passDitherUni.res, w, h);
-    glChar.uniform1f(passDitherUni.cell, cellSize);
-    if (passDitherUni.colorPreset) glChar.uniform1i(passDitherUni.colorPreset, colorPreset);
-    glChar.drawArrays(glChar.TRIANGLES, 0, 6);
-    fgTex = texPass2;
-  }
-
-  if (pixelSortEnabled && sortStrength > 0.0 && hasVisualSource && passSortProg) {
-    glChar.bindFramebuffer(glChar.FRAMEBUFFER, fbo3);
-    glChar.useProgram(passSortProg);
-    bindQuadAttributes(passSortProg, passSortUni);
-    setTransformUniforms(passSortUni, w, h, idleState, exprParams, blinkVal);
-    glChar.activeTexture(glChar.TEXTURE0);
-    glChar.bindTexture(glChar.TEXTURE_2D, fgTex);
-    glChar.uniform1i(passSortUni.fgTex, 0);
-    glChar.uniform2f(passSortUni.res, w, h);
-    glChar.uniform1f(passSortUni.sortStrength, sortStrength);
-    glChar.uniform1f(passSortUni.sortThreshold, sortThreshold);
-    glChar.uniform1f(passSortUni.time, elapsed);
-    glChar.drawArrays(glChar.TRIANGLES, 0, 6);
-    fgTex = texPass3;
-  }
-
-  glChar.bindFramebuffer(glChar.FRAMEBUFFER, null);
-  glChar.clearColor(0, 0, 0, 0);
-  glChar.clear(glChar.COLOR_BUFFER_BIT);
-  glChar.enable(glChar.BLEND);
-  glChar.blendFunc(glChar.SRC_ALPHA, glChar.ONE_MINUS_SRC_ALPHA);
-
-  glChar.useProgram(pass3Prog);
-  bindQuadAttributes(pass3Prog, pass3Uni);
-  setTransformUniforms(pass3Uni, w, h, idleState, exprParams, blinkVal);
-  glChar.activeTexture(glChar.TEXTURE0);
-  glChar.bindTexture(glChar.TEXTURE_2D, fgTex);
-  glChar.uniform1i(pass3Uni.fg, 0);
-  glChar.activeTexture(glChar.TEXTURE1);
-  glChar.bindTexture(glChar.TEXTURE_2D, texBgUpload);
-  glChar.uniform1i(pass3Uni.bgTex, 1);
-  glChar.activeTexture(glChar.TEXTURE2);
-  glChar.bindTexture(glChar.TEXTURE_2D, texNoise);
-  if (pass3Uni.noise) glChar.uniform1i(pass3Uni.noise, 2);
-  glChar.uniform2f(pass3Uni.res, w, h);
-  if (pass3Uni.crtStrength) glChar.uniform1f(pass3Uni.crtStrength, crtStrength);
-  if (pass3Uni.glowStrength) glChar.uniform1f(pass3Uni.glowStrength, glowStrength);
-  if (pass3Uni.time) glChar.uniform1f(pass3Uni.time, elapsed);
-  if (pass3Uni.interfStrength) glChar.uniform1f(pass3Uni.interfStrength, interfStrength);
-  if (pass3Uni.vhsStrength) glChar.uniform1f(pass3Uni.vhsStrength, vhsStrength);
-  if (pass3Uni.rainStrength) glChar.uniform1f(pass3Uni.rainStrength, rainStrength);
-  glChar.drawArrays(glChar.TRIANGLES, 0, 6);
-
-  glChar.bindFramebuffer(glChar.FRAMEBUFFER, null);
 }
 
-if (glBg) initBgShader();
-else console.error('[browser] WebGL2 bg unavailable');
-if (glChar) initCharPipeline();
-else console.error('[browser] WebGL2 char unavailable');
+function startRenderLoop() {
+  cancelAnimationFrame(state.rafId);
+  state.rafId = requestAnimationFrame(renderFrame);
+}
 
-let recorder = null;
-document.getElementById('btnRec')?.addEventListener('click', async () => {
-  const btn = document.getElementById('btnRec');
-  if (!recorder) recorder = new CanvasRecorder(webglCanvas, { fps: 30 });
-  try {
-    if (!btn.classList.contains('active')) {
-      recorder.start();
-      btn.classList.add('active');
-    } else {
-      const blob = await recorder.stop();
-      btn.classList.remove('active');
-      CanvasRecorder.downloadBlob(blob, 'victoria-browser.webm');
-    }
-  } catch (e) { console.error(e); btn.classList.remove('active'); }
+function navigate(url) {
+  if (!url) return;
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  urlInput.value = url;
+  state.streams = [];
+  updateStreamBadge();
+  closeStreamPicker();
+  browserFrame.src = '/proxy?url=' + encodeURIComponent(url);
+}
+
+const addressBar = document.getElementById('addressBar');
+const urlInput = document.getElementById('urlInput');
+const btnGo = document.getElementById('btnGo');
+const btnBack = document.getElementById('btnBack');
+const btnForward = document.getElementById('btnForward');
+const btnRefresh = document.getElementById('btnRefresh');
+const browseView = document.getElementById('browseView');
+const browserFrame = document.getElementById('browserFrame');
+const streamBadge = document.getElementById('streamBadge');
+const badgeText = document.getElementById('badgeText');
+const streamPicker = document.getElementById('streamPicker');
+const streamList = document.getElementById('streamList');
+const streamCount = document.getElementById('streamCount');
+const btnDismissPicker = document.getElementById('btnDismissPicker');
+const playbackView = document.getElementById('playbackView');
+const aikavid = document.getElementById('aikavid');
+const aikaCanvas = document.getElementById('aikaCanvas');
+const btnKill = document.getElementById('btnKill');
+const btnMute = document.getElementById('btnMute');
+const sizeSlider = document.getElementById('sizeSlider');
+const sizeVal = document.getElementById('sizeVal');
+const brightSlider = document.getElementById('brightSlider');
+const brightVal = document.getElementById('brightVal');
+
+btnGo.addEventListener('click', () => navigate(urlInput.value.trim()));
+urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(urlInput.value.trim()); });
+btnBack.addEventListener('click', () => { try { browserFrame.contentWindow?.history.back(); } catch (_) {} });
+btnForward.addEventListener('click', () => { try { browserFrame.contentWindow?.history.forward(); } catch (_) {} });
+btnRefresh.addEventListener('click', () => { try { browserFrame.contentWindow?.location.reload(); } catch (_) {} });
+
+streamBadge.addEventListener('click', openStreamPicker);
+btnDismissPicker.addEventListener('click', closeStreamPicker);
+btnKill.addEventListener('click', killStream);
+
+btnMute.addEventListener('click', () => {
+  aikavid.muted = !aikavid.muted;
+  state.muted = aikavid.muted;
+  btnMute.textContent = aikavid.muted ? 'UNMUTE' : 'MUTE';
+  btnMute.classList.toggle('active', !aikavid.muted);
 });
 
-
-
-// ── Browser shell (navigation, modes, transport) ──
-{
-  const VICTORIA_OVERLAY_SCRIPT = `<script>
-(function() {
-  const DENSITY = ' .:-=+*#%@█▓▒░';
-  window.__victoria = window.__victoria || {
-    enabled: true,
-    size: 8,
-    brightness: 1.4,
-    color: 'viridian',
-    volume: 0.8,
-    speed: 1,
-  };
-
-  function thermalColor(t) {
-    const stops = [
-      [0, [0, 0, 0]],
-      [0.25, [80, 0, 128]],
-      [0.5, [200, 0, 0]],
-      [0.75, [255, 120, 0]],
-      [1, [255, 255, 255]],
-    ];
-    const x = Math.max(0, Math.min(1, t));
-    for (let i = 0; i < stops.length - 1; i++) {
-      const [t0, c0] = stops[i];
-      const [t1, c1] = stops[i + 1];
-      if (x >= t0 && x <= t1) {
-        const f = (x - t0) / (t1 - t0);
-        const r = Math.round(c0[0] + (c1[0] - c0[0]) * f);
-        const g = Math.round(c0[1] + (c1[1] - c0[1]) * f);
-        const b = Math.round(c0[2] + (c1[2] - c0[2]) * f);
-        return 'rgb(' + r + ',' + g + ',' + b + ')';
-      }
-    }
-    return 'rgb(255,255,255)';
-  }
-
-  function colorForLuma(luma, settings) {
-    const t = Math.max(0, Math.min(1, luma * settings.brightness));
-    const c = (settings.color || 'viridian').toLowerCase();
-    if (c === 'thermal') return thermalColor(t);
-    if (c === 'nightvision') {
-      const g = Math.round(t * 255);
-      return 'rgb(0,' + g + ',65)';
-    }
-    if (c === 'amber') {
-      const r = Math.round(212 * t);
-      const g = Math.round(132 * t);
-      const b = Math.round(42 * t);
-      return 'rgb(' + r + ',' + g + ',' + b + ')';
-    }
-    if (c === 'midnight') {
-      var mb = Math.round(27 + t * 80);
-      return 'rgb(5,16,' + mb + ')';
-    }
-    if (c === 'crimson') {
-      var cr = Math.round(40 + t * 200);
-      return 'rgb(' + cr + ',8,24)';
-    }
-    if (c === 'ghost') {
-      var gv = Math.round(120 + t * 120);
-      return 'rgb(' + gv + ',' + gv + ',' + (gv + 8) + ')';
-    }
-    const v = Math.round(46 + t * (125 - 46));
-    const g = Math.round(125 + t * (168 - 125));
-    const b = Math.round(107 + t * (142 - 107));
-    return 'rgb(' + v + ',' + g + ',' + b + ')';
-  }
-
-  function applyVideoControls() {
-    document.querySelectorAll('video').forEach(function(v) {
-      v.volume = window.__victoria.volume;
-      v.playbackRate = window.__victoria.speed;
-    });
-  }
-
-  function ensureSampleCanvas(media, vw, vh) {
-    var SAMPLE_W = 320;
-    var SAMPLE_H = Math.max(1, Math.round(SAMPLE_W * (vh / vw)));
-    var sc = media._sampleCanvas;
-    if (!sc) {
-      sc = document.createElement('canvas');
-      media._sampleCanvas = sc;
-      media._sampleCtx = sc.getContext('2d', { willReadFrequently: true });
-    }
-    if (sc.width !== SAMPLE_W || sc.height !== SAMPLE_H) {
-      sc.width = SAMPLE_W;
-      sc.height = SAMPLE_H;
-    }
-    return { w: SAMPLE_W, h: SAMPLE_H, ctx: media._sampleCtx };
-  }
-
-  function quantizeColor(r, g, b, br) {
-    var fr = Math.min(255, r * br);
-    var fg = Math.min(255, g * br);
-    var fb = Math.min(255, b * br);
-    var qr = Math.min(255, Math.round(fr / 32) * 32);
-    var qg = Math.min(255, Math.round(fg / 32) * 32);
-    var qb = Math.min(255, Math.round(fb / 32) * 32);
-    return 'rgb(' + qr + ',' + qg + ',' + qb + ')';
-  }
-
-  function renderAsciiOnMedia(media, canvas) {
-    var ctx = canvas.getContext('2d');
-    var running = true;
-    var lastFrame = 0;
-    media.__victoriaStop = function() { running = false; };
-
-    function syncWrapperSize() {
-      var wrap = media.parentElement;
-      if (wrap && wrap.classList.contains('victoria-wrap')) {
-        var w = media.offsetWidth || media.clientWidth;
-        var h = media.offsetHeight || media.clientHeight;
-        if (w > 0) wrap.style.width = w + 'px';
-        if (h > 0) wrap.style.height = h + 'px';
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-      }
-    }
-
-    function loop(ts) {
-      requestAnimationFrame(loop);
-      if (!running) return;
-      if (!ts) ts = performance.now();
-
-      var cfg = window.__victoria;
-      if (!cfg.enabled) {
-        canvas.style.visibility = 'hidden';
-        return;
-      }
-      canvas.style.visibility = 'visible';
-      syncWrapperSize();
-
-      var isVideo = media.tagName === 'VIDEO';
-      if (isVideo) {
-        media.volume = cfg.volume;
-        media.playbackRate = cfg.speed;
-        if (media.paused || media.ended) return;
-      }
-
-      var vw = isVideo ? (media.videoWidth || 0) : (media.naturalWidth || media.width || 0);
-      var vh = isVideo ? (media.videoHeight || 0) : (media.naturalHeight || media.height || 0);
-      if (!vw || !vh) return;
-
-      if (lastFrame > 0 && ts - lastFrame < 33) return;
-      lastFrame = ts;
-
-      var colorMode = (cfg.color || 'viridian').toLowerCase();
-      var cell = colorMode === 'halftone'
-        ? Math.max(2, cfg.size | 0)
-        : Math.max(4, cfg.size | 0);
-
-      canvas.width = vw;
-      canvas.height = vh;
-
-      var sample = ensureSampleCanvas(media, vw, vh);
-      var sampleW = sample.w;
-      var sampleH = sample.h;
-      var sampleCtx = sample.ctx;
-
-      try {
-        sampleCtx.drawImage(media, 0, 0, sampleW, sampleH);
-      } catch (e) {
-        return;
-      }
-
-      var img = sampleCtx.getImageData(0, 0, sampleW, sampleH);
-      var data = img.data;
-      var scaleX = sampleW / vw;
-      var scaleY = sampleH / vh;
-
-      ctx.fillStyle = '#1A1A2E';
-      ctx.fillRect(0, 0, vw, vh);
-
-      if (colorMode === 'halftone') {
-        var br = cfg.brightness;
-        var maxR = cell / 2;
-        var dotBuckets = {};
-
-        for (var cy = 0; cy < vh; cy += cell) {
-          for (var cx = 0; cx < vw; cx += cell) {
-            var px = Math.min(sampleW - 1, ((cx + cell / 2) * scaleX) | 0);
-            var py = Math.min(sampleH - 1, ((cy + cell / 2) * scaleY) | 0);
-            var idx = (py * sampleW + px) * 4;
-            var r = data[idx];
-            var g = data[idx + 1];
-            var b = data[idx + 2];
-            var a = data[idx + 3];
-            if (a < 10) continue;
-            var luma = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
-            if (luma < 0.04) continue;
-            var radius = Math.max(0.5, maxR * (0.2 + luma * 0.8));
-            var colorKey = quantizeColor(r, g, b, br);
-            var dotX = cx + cell / 2;
-            var dotY = cy + cell / 2;
-            if (!dotBuckets[colorKey]) dotBuckets[colorKey] = [];
-            dotBuckets[colorKey].push({ x: dotX, y: dotY, r: radius });
-          }
-        }
-
-        for (var dotColor in dotBuckets) {
-          var dots = dotBuckets[dotColor];
-          ctx.fillStyle = dotColor;
-          ctx.beginPath();
-          for (var di = 0; di < dots.length; di++) {
-            var d = dots[di];
-            ctx.moveTo(d.x + d.r, d.y);
-            ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-          }
-          ctx.fill();
-        }
-      } else {
-        var charBuckets = {};
-        ctx.font = cell + 'px "Share Tech Mono", monospace';
-        ctx.textBaseline = 'top';
-
-        for (var y = 0; y < vh; y += cell) {
-          for (var x = 0; x < vw; x += cell) {
-            var spx = Math.min(sampleW - 1, ((x + cell / 2) * scaleX) | 0);
-            var spy = Math.min(sampleH - 1, ((y + cell / 2) * scaleY) | 0);
-            var si = (spy * sampleW + spx) * 4;
-            var sr = data[si];
-            var sg = data[si + 1];
-            var sb = data[si + 2];
-            var sa = data[si + 3];
-            if (sa < 10) continue;
-            var avg = (sr * 0.299 + sg * 0.587 + sb * 0.114) / 255;
-            if (avg < 0.04) continue;
-            var dIdx = Math.min(DENSITY.length - 1, Math.floor(avg * (DENSITY.length - 1)));
-            var ch = DENSITY[DENSITY.length - 1 - dIdx];
-            var fill = colorForLuma(avg, cfg);
-            if (!charBuckets[fill]) charBuckets[fill] = [];
-            charBuckets[fill].push({ x: x, y: y, ch: ch });
-          }
-        }
-
-        for (var fillColor in charBuckets) {
-          var glyphs = charBuckets[fillColor];
-          ctx.fillStyle = fillColor;
-          for (var gi = 0; gi < glyphs.length; gi++) {
-            var g = glyphs[gi];
-            ctx.fillText(g.ch, g.x, g.y);
-          }
-        }
-      }
-    }
-
-    requestAnimationFrame(loop);
-  }
-
-  function applyAsciiOverlay(media) {
-    if (media.getAttribute('data-victoria') === 'true') return;
-    media.setAttribute('data-victoria', 'true');
-
-    var canvas = document.createElement('canvas');
-    canvas.className = 'victoria-ascii-overlay';
-    canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999999;';
-
-    var parent = media.parentNode;
-    if (parent && parent.classList && parent.classList.contains('victoria-wrap')) {
-      parent.appendChild(canvas);
-    } else {
-      var wrapper = document.createElement('div');
-      wrapper.className = 'victoria-wrap';
-      wrapper.style.cssText = 'position:relative;display:inline-block;';
-      var w = media.offsetWidth || media.clientWidth;
-      var h = media.offsetHeight || media.clientHeight;
-      if (w > 0) wrapper.style.width = w + 'px';
-      if (h > 0) wrapper.style.height = h + 'px';
-      parent.insertBefore(wrapper, media);
-      wrapper.appendChild(media);
-      wrapper.appendChild(canvas);
-    }
-
-    renderAsciiOnMedia(media, canvas);
-  }
-
-  function findGifImages() {
-    return Array.prototype.filter.call(document.querySelectorAll('img'), function(img) {
-      var src = (img.getAttribute('src') || img.currentSrc || '').split('?')[0].toLowerCase();
-      return src.endsWith('.gif');
-    });
-  }
-
-  function scanMedia() {
-    document.querySelectorAll('video:not([data-victoria])').forEach(applyAsciiOverlay);
-    findGifImages().filter(function(img) {
-      return img.getAttribute('data-victoria') !== 'true';
-    }).forEach(applyAsciiOverlay);
-    var mainImg = document.getElementById('mainImage');
-    if (mainImg && mainImg.getAttribute('data-victoria') !== 'true') {
-      applyAsciiOverlay(mainImg);
-    }
-    applyVideoControls();
-  }
-
-  function initVictoriaOverlay() {
-    scanMedia();
-    if (window.__victoriaObserver) return;
-    window.__victoriaObserver = new MutationObserver(function() {
-      scanMedia();
-    });
-    if (document.body) {
-      window.__victoriaObserver.observe(document.body, { childList: true, subtree: true });
-    }
-  }
-
-  window.addEventListener('message', function(e) {
-    var d = e.data;
-    if (!d || typeof d !== 'object') return;
-    if (d.type === 'victoria-toggle') {
-      window.__victoria.enabled = !!d.enabled;
-    }
-    if (d.type === 'victoria-settings') {
-      if (d.size != null) window.__victoria.size = d.size;
-      if (d.brightness != null) window.__victoria.brightness = d.brightness;
-      if (d.color != null) window.__victoria.color = String(d.color).toLowerCase();
-      if (d.volume != null) window.__victoria.volume = d.volume;
-      if (d.speed != null) window.__victoria.speed = d.speed;
-      if (d.enabled != null) window.__victoria.enabled = !!d.enabled;
-      applyVideoControls();
-    }
-    
-    if (d.type === 'victoria-transport') {
-      var videos = document.querySelectorAll('video');
-      videos.forEach(function(v) {
-        if (d.volume != null) v.volume = d.volume;
-        if (d.speed != null) v.playbackRate = d.speed;
-        if (d.action === 'play') v.play().catch(function(){});
-        if (d.action === 'pause') v.pause();
-        if (d.action === 'seek' && d.time != null) {
-          try { v.currentTime = d.time; } catch (e) {}
-        }
-      });
-      return;
-    }
-    if (d.type === 'victoria-init') {
-      initVictoriaOverlay();
-    }
+document.querySelectorAll('.effect-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.effect = btn.dataset.effect;
   });
+});
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initVictoriaOverlay);
-  } else {
-    setTimeout(initVictoriaOverlay, 0);
-  }
-})();
-<\/script>`;
-
-  function injectVictoriaOverlay(html) {
-    if (html.includes('</body>')) {
-      return html.replace(/<\/body>/i, VICTORIA_OVERLAY_SCRIPT + '</body>');
-    }
-    return html + VICTORIA_OVERLAY_SCRIPT;
-  }
-
-  const frame = document.getElementById('browserFrame');
-  const viewport = document.getElementById('viewport');
-  const webglCanvasEl = document.getElementById('webglCanvas');
-  const modeNotice = document.getElementById('modeNotice');
-  const addressBar = document.getElementById('addressBar');
-  const btnBack = document.getElementById('btnBack');
-  const btnForward = document.getElementById('btnForward');
-  const btnRefresh = document.getElementById('btnRefresh');
-  const btnGo = document.getElementById('btnGo');
-  const localFileInput = document.getElementById('localFileInput');
-
-  const history = [];
-  let historyIndex = -1;
-  let currentLocalObjectUrl = null;
-  let lastLocalFile = null;
-  let lastLocalHistoryKey = null;
-
-  let contentKind = 'none';
-  let userMode = 'canvas';
-  let effectiveMode = 'canvas';
-  let activeEffect = 'ascii';
-  let colorPresetIndex = 0;
-  let webglLoopId = 0;
-  let webglInited = false;
-  let startTime = null;
-  let lastTime = 0;
-  let pendingLocalVideoBlobUrl = null;
-
-  const COLOR_PRESETS = ['viridian', 'midnight', 'amber', 'crimson', 'ghost'];
-  const COLOR_TO_CANVAS = ['viridian', 'midnight', 'amber', 'crimson', 'ghost'];
-
-  const els = {
-    sectionFx: document.getElementById('sectionFx'),
-    sectionShared: document.getElementById('sectionShared'),
-    sectionWebgl: document.getElementById('sectionWebgl'),
-    btnPlay: document.getElementById('btnPlay'),
-    seekBar: document.getElementById('seekBar'),
-    seekCurrent: document.getElementById('seekCurrent'),
-    seekDuration: document.getElementById('seekDuration'),
-    curLabel: document.getElementById('seekCurrent'),
-    durLabel: document.getElementById('seekDuration'),
-    sizeSlider: document.getElementById('sizeSlider'),
-    sizeVal: document.getElementById('sizeVal'),
-    brightSlider: document.getElementById('brightSlider'),
-    brightVal: document.getElementById('brightVal'),
-    volSlider: document.getElementById('volSlider'),
-    volVal: document.getElementById('volVal'),
-    glitchSlider: document.getElementById('glitchSlider'),
-    chromaSlider: document.getElementById('chromaSlider'),
-    crtSlider: document.getElementById('crtSlider'),
-    glowSlider: document.getElementById('glowSlider'),
-    btnRec: document.getElementById('btnRec'),
-  };
-
-  function isWebglEligible() {
-    return contentKind === 'localVideo' || contentKind === 'directVideo';
-  }
-
-  function isProxied() {
-    return contentKind === 'proxied';
-  }
-
-  function fmtShort(secs) {
-    const s = Math.max(0, secs || 0);
-    const m = Math.floor(s / 60).toString().padStart(2, '0');
-    const ss = Math.floor(s % 60).toString().padStart(2, '0');
-    return m + ':' + ss;
-  }
-
-  function updateSeekFill() {
-    const bar = els.seekBar;
-    if (!bar) return;
-    const max = parseFloat(bar.max) || 0;
-    const val = parseFloat(bar.value) || 0;
-    const pct = max > 0 ? ((val / max) * 100).toFixed(1) : '0';
-    bar.style.background = 'linear-gradient(to right, var(--viridian) ' + pct + '%, var(--bg-mid) ' + pct + '%)';
-  }
-
-  function syncSeekFromVideo() {
-    if (isSeeking || !sourceVideo || sourceMode !== 'video') return;
-    const d = sourceVideo.duration;
-    if (!isFinite(d) || d <= 0) return;
-    els.seekBar.max = String(d);
-    els.seekBar.value = String(sourceVideo.currentTime);
-    els.seekCurrent.textContent = fmtShort(sourceVideo.currentTime);
-    els.seekDuration.textContent = fmtShort(d);
-    updateSeekFill();
-  }
-
-  function formatTime(secs) {
-    return fmtShort(secs);
-  }
-
-  function showPlayPrompt() {
-    const el = document.getElementById('playPrompt');
-    if (!el) return;
-    el.classList.add('visible');
-    el.setAttribute('aria-hidden', 'false');
-  }
-
-  function hidePlayPrompt() {
-    const el = document.getElementById('playPrompt');
-    if (!el) return;
-    el.classList.remove('visible');
-    el.setAttribute('aria-hidden', 'true');
-  }
-
-  function restoreSourceVideoVolume() {
-    const vol = (+els.volSlider.value || 80) / 100;
-    sourceVideo.volume = vol;
-    sourceVideo.muted = vol === 0;
-  }
-
-  function configureVideoForUrl(url) {
-    if (typeof url === 'string' && (url.startsWith('blob:') || url.startsWith('file:'))) {
-      sourceVideo.removeAttribute('crossorigin');
-    } else {
-      sourceVideo.crossOrigin = 'anonymous';
-    }
-  }
-
-  function attemptWebglAutoplay() {
-    if (sourceMode !== 'video' || !sourceVideo.src) return Promise.resolve();
-    sourceVideo.muted = true;
-    sourceVideo.playbackRate = getPlaybackSpeed();
-    return sourceVideo.play().then(() => {
-      hidePlayPrompt();
-      sourceVideo.muted = false;
-      restoreSourceVideoVolume();
-      if (els.btnPlay) els.btnPlay.textContent = sourceVideo.paused ? '▶' : '⏸';
-    }).catch((err) => {
-      console.warn('Autoplay blocked:', err);
-      showPlayPrompt();
-    });
-  }
-
-  function wireSourceVideoPlayback() {
-    sourceVideo.onerror = () => {
-      const err = sourceVideo.error;
-      console.warn('[browser] Video error:', err?.code, err?.message, sourceVideo.src);
-      showPlayPrompt();
-    };
-    sourceVideo.onloadedmetadata = () => {
-      sourceNaturalW = sourceVideo.videoWidth;
-      sourceNaturalH = sourceVideo.videoHeight;
-      sourceLoading = false;
-      if (els.seekBar && isFinite(sourceVideo.duration) && sourceVideo.duration > 0) {
-        els.seekBar.max = String(sourceVideo.duration);
-        els.durLabel.textContent = formatTime(sourceVideo.duration);
-      }
-      updateSeekFill();
-    };
-    sourceVideo.onloadeddata = () => {
-      if (sourceVideo.paused && effectiveMode === 'webgl' && sourceMode === 'video') {
-        attemptWebglAutoplay();
-      }
-    };
-    sourceVideo.ontimeupdate = () => {
-      if (isSeeking || sourceMode !== 'video') return;
-      els.seekBar.value = String(sourceVideo.currentTime);
-      els.curLabel.textContent = formatTime(sourceVideo.currentTime);
-      updateSeekFill();
-    };
-    sourceVideo.onended = () => { videoPlaybackComplete = true; };
-  }
-
-  function showNotice(msg) {
-    modeNotice.textContent = msg || '';
-    modeNotice.classList.toggle('visible', !!msg);
-  }
-
-  function applyWebglUniforms() {
-    cellSize = +els.sizeSlider.value || 8;
-    brightness = (+els.brightSlider.value || 140) / 100;
-    tintStr = 0.6;
-    glitchAmt = (+els.glitchSlider?.value || 20) / 100;
-    chromaAmt = (+els.chromaSlider?.value || 0) / 100;
-    crtStrength = (+els.crtSlider?.value || 0) / 100;
-    glowStrength = (+els.glowSlider?.value || 0) / 100;
-    colorPreset = colorPresetIndex;
-    if (activeEffect === 'thermal') paletteMode = 1;
-    else if (activeEffect === 'nightvision') paletteMode = 2;
-    else paletteMode = 0;
-    if (activeEffect === 'dither') shaderMode = 'dither';
-    else if (activeEffect === 'ascii') shaderMode = 'ascii';
-    else shaderMode = 'raw';
-    rainStrength = document.getElementById('btnRain')?.classList.contains('active') ? 0.35 : 0;
-    vhsStrength = document.getElementById('btnVhs')?.classList.contains('active') ? 0.4 : 0;
-    interfStrength = document.getElementById('btnInterf')?.classList.contains('active') ? 0.35 : 0;
-    if (glChar && asciiAtlasTex !== undefined) buildAsciiAtlas(cellSize);
-  }
-
-  function getCanvasPayload() {
-    const color = activeEffect === 'thermal' ? 'thermal'
-      : activeEffect === 'nightvision' ? 'nightvision'
-      : activeEffect === 'halftone' ? 'halftone'
-      : COLOR_TO_CANVAS[colorPresetIndex] || 'viridian';
-    return {
-      enabled: effectiveMode === 'canvas' && userMode !== 'off',
-      size: +els.sizeSlider.value || 8,
-      brightness: (+els.brightSlider.value || 140) / 100,
-      color,
-      volume: (+els.volSlider.value || 0) / 100,
-      speed: getPlaybackSpeed(),
-    };
-  }
-
-  function getPlaybackSpeed() {
-    const active = document.querySelector('.speed-btn.active');
-    return active ? parseFloat(active.dataset.speed) || 1 : 1;
-  }
-
-  function postToFrame(msg) {
-    try { frame.contentWindow?.postMessage(msg, '*'); } catch (_) {}
-  }
-
-  function sendVictoriaSettings() {
-    postToFrame({ type: 'victoria-settings', ...getCanvasPayload() });
-  }
-
-  function sendVictoriaToggle() {
-    postToFrame({ type: 'victoria-toggle', enabled: userMode !== 'off' && effectiveMode === 'canvas' });
-  }
-
-  function sendTransport(extra) {
-    postToFrame({ type: 'victoria-transport', volume: (+els.volSlider.value || 0) / 100, speed: getPlaybackSpeed(), ...extra });
-  }
-
-  function scheduleVictoriaInit() {
-    setTimeout(() => {
-      postToFrame({ type: 'victoria-init' });
-      sendVictoriaSettings();
-      sendVictoriaToggle();
-    }, 1000);
-  }
-
-  function updateViewportLayout() {
-    const webglOn = effectiveMode === 'webgl' && isWebglEligible();
-    webglCanvasEl.classList.toggle('active', webglOn);
-    frame.classList.toggle('hidden-behind', webglOn);
-    sourceVideo.style.display = webglOn ? 'none' : 'none';
-    if (webglOn) {
-      frame.style.visibility = 'hidden';
-      frame.style.pointerEvents = 'none';
-    } else {
-      frame.style.visibility = '';
-      frame.style.pointerEvents = '';
-    }
-  }
-
-  function stopWebglLoop() {
-    if (webglLoopId) cancelAnimationFrame(webglLoopId);
-    webglLoopId = 0;
-    startTime = null;
-  }
-
-  function startWebglLoop() {
-    stopWebglLoop();
-    if (!glBg || !glChar) return;
-    if (!webglInited) {
-      initBgShader();
-      initCharPipeline();
-      webglInited = true;
-    }
-    resizeCanvases();
-    applyWebglUniforms();
-    function frame(ts) {
-      if (effectiveMode !== 'webgl' || !isWebglEligible()) return;
-      webglLoopId = requestAnimationFrame(frame);
-      if (!startTime) startTime = ts;
-      const elapsed = (ts - startTime) / 1000;
-      const dt = Math.min(0.05, (ts - lastTime) / 1000);
-      lastTime = ts;
-      const W = bgCanvas.width, H = bgCanvas.height;
-      if (glBg) renderBg(elapsed, 0.85);
-      if (glChar) renderCharPipeline(elapsed, IDLE_STATIC, EXPR_STATIC, 1.0);
-    }
-    webglLoopId = requestAnimationFrame(frame);
-  }
-
-  function loadWebglSource(url, kind, { autoplay = true } = {}) {
-    sourceMode = 'none';
-    videoTexReady = false;
-    sourceImage = null;
-    hidePlayPrompt();
-    if (kind === 'video') {
-      sourceMode = 'video';
-      sourceLoading = true;
-      configureVideoForUrl(url);
-      sourceVideo.src = url;
-      sourceVideo.muted = true;
-      sourceVideo.load();
-      wireSourceVideoPlayback();
-      if (autoplay) attemptWebglAutoplay();
-    } else if (kind === 'image') {
-      sourceMode = 'image';
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        sourceImage = img;
-        sourceNaturalW = img.naturalWidth;
-        sourceNaturalH = img.naturalHeight;
-        videoTexReady = true;
-      };
-      img.src = url;
-    }
-  }
-
-  function clearWebglSource() {
-    hidePlayPrompt();
-    try { sourceVideo.pause(); } catch (_) {}
-    sourceVideo.onloadedmetadata = null;
-    sourceVideo.onloadeddata = null;
-    sourceVideo.ontimeupdate = null;
-    sourceVideo.onended = null;
-    sourceVideo.onerror = null;
-    sourceVideo.removeAttribute('src');
-    sourceVideo.load();
-    sourceMode = 'none';
-    sourceImage = null;
-    videoTexReady = false;
-  }
-
-  function setMode(mode, { silent } = {}) {
-    userMode = mode;
-    if (mode === 'webgl' && !isWebglEligible()) {
-      if (!silent) showNotice('WEBGL not available for proxied pages — using CANVAS mode');
-      effectiveMode = 'canvas';
-      userMode = 'canvas';
-      document.querySelectorAll('[data-mode]').forEach((b) => {
-        b.classList.toggle('active', b.dataset.mode === 'canvas');
-      });
-    } else {
-      showNotice('');
-      effectiveMode = mode === 'off' ? 'off' : mode;
-      document.querySelectorAll('[data-mode]').forEach((b) => {
-        b.classList.toggle('active', b.dataset.mode === userMode);
-      });
-    }
-    const off = effectiveMode === 'off';
-    els.sectionFx?.classList.toggle('hidden', off);
-    els.sectionShared?.classList.toggle('hidden', off);
-    els.sectionWebgl?.classList.toggle('hidden', effectiveMode !== 'webgl');
-    updateEffectButtons();
-    updateViewportLayout();
-    if (effectiveMode === 'webgl') {
-      stopWebglLoop();
-      if (contentKind === 'localVideo' || contentKind === 'directVideo') {
-        /* source already on sourceVideo */
-      }
-      startWebglLoop();
-      frame.srcdoc = '<!DOCTYPE html><html><body style="margin:0;background:#000"></body></html>';
-    } else {
-      stopWebglLoop();
-      if (!isProxied() && (contentKind === 'localVideo' || contentKind === 'directVideo')) {
-        /* canvas/off uses iframe srcdoc from load */
-      }
-    }
-    if (effectiveMode === 'canvas') scheduleVictoriaInit();
-    sendVictoriaToggle();
-    sendVictoriaSettings();
-  }
-
-  function updateEffectButtons() {
-    document.querySelectorAll('[data-effect]').forEach((btn) => {
-      const fx = btn.dataset.effect;
-      const canvasOnlyGl = fx === 'thermal' || fx === 'nightvision' || fx === 'halftone';
-      const webglOnly = fx === 'dither';
-      let disabled = false;
-      if (effectiveMode === 'off') disabled = true;
-      else if (effectiveMode === 'canvas' && (fx === 'thermal' || fx === 'nightvision' || fx === 'dither')) disabled = true;
-      else if (effectiveMode === 'webgl' && fx === 'halftone') disabled = true;
-      btn.disabled = disabled;
-      btn.classList.toggle('active', activeEffect === fx && !disabled);
-      btn.classList.toggle('disabled', disabled);
-    });
-  }
-
-  function normalizeUrl(raw) {
-    const s = (raw || '').trim();
-    if (!s) return null;
-    if (/^https?:\/\//i.test(s)) return s;
-    return 'https://' + s;
-  }
-
-  function proxyUrl(target) {
-    return '/proxy?url=' + encodeURIComponent(target);
-  }
-
-  const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.ogg', '.m4v'];
-
-  function isDirectVideo(url) {
-    const lower = url.toLowerCase();
-    return VIDEO_EXTENSIONS.some((ext) => lower.includes(ext));
-  }
-
-  function escapeHtmlAttr(value) {
-    return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-  }
-
-  function revokeLocalObjectUrl() {
-    if (currentLocalObjectUrl) {
-      URL.revokeObjectURL(currentLocalObjectUrl);
-      currentLocalObjectUrl = null;
-    }
-  }
-
-  function buildDirectVideoSrcdoc(videoUrl) {
-    const src = proxyUrl(videoUrl);
-    const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><video id="mainVideo" src="' + src + '" controls style="max-width:100%;max-height:100vh" crossorigin="anonymous"></video></body></html>';
-    return injectVictoriaOverlay(html);
-  }
-
-  function buildLocalVideoSrcdoc(blobUrl) {
-    const src = escapeHtmlAttr(blobUrl);
-    const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><video id="mainVideo" src="' + src + '" controls style="max-width:100%;max-height:100vh"></video></body></html>';
-    return injectVictoriaOverlay(html);
-  }
-
-  function buildLocalImageSrcdoc(blobUrl) {
-    const src = escapeHtmlAttr(blobUrl);
-    const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;"><img id="mainImage" src="' + src + '" alt="" style="max-width:100%;max-height:100vh;object-fit:contain;"></body></html>';
-    return injectVictoriaOverlay(html);
-  }
-
-  function errorSrcdoc(message) {
-    const safe = String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:24px;background:#1A1A2E;color:#E8E4DC;font-family:monospace;font-size:12px;">' + safe + '</body></html>';
-  }
-
-  const FRAME_LOCAL_SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-popups';
-
-  function prepareFrameForSrcdoc() {
-    frame.removeAttribute('src');
-    frame.setAttribute('sandbox', FRAME_LOCAL_SANDBOX);
-  }
-
-  function navigateFrameToProxy(url, onLoad) {
-    frame.removeAttribute('sandbox');
-    frame.removeAttribute('srcdoc');
-    const target = proxyUrl(url);
-    const assignTarget = () => {
-      frame.onload = () => {
-        if (onLoad) onLoad();
-      };
-      frame.src = target;
-    };
-    if (frame.src) {
-      frame.onload = assignTarget;
-      frame.src = 'about:blank';
-    } else {
-      assignTarget();
-    }
-  }
-
-  function syncNavButtons() {
-    btnBack.disabled = historyIndex <= 0;
-    btnForward.disabled = historyIndex < 0 || historyIndex >= history.length - 1;
-  }
-
-  function afterContentLoad() {
-    if (userMode === 'webgl' && isWebglEligible()) setMode('webgl', { silent: true });
-    else if (userMode === 'webgl') setMode('canvas', { silent: false });
-    else setMode(userMode, { silent: true });
-  }
-
-  function loadLocalFile(file, { pushHistory = true, fromUserGesture = false } = {}) {
-    if (!file) return;
-    revokeLocalObjectUrl();
-    const blobUrl = URL.createObjectURL(file);
-    currentLocalObjectUrl = blobUrl;
-    pendingLocalVideoBlobUrl = null;
-    const name = file.name || 'local file';
-    const mime = (file.type || '').toLowerCase();
-    const isVideo = mime.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(name);
-    const isImage = mime.startsWith('image/') || /\.(jpe?g|png)$/i.test(name);
-    addressBar.value = name;
-    lastLocalFile = file;
-    lastLocalHistoryKey = 'local:' + name;
-    if (pushHistory) {
-      if (historyIndex < history.length - 1) history.splice(historyIndex + 1);
-      history.push(lastLocalHistoryKey);
-      historyIndex = history.length - 1;
-      syncNavButtons();
-    }
-    frame.removeAttribute('src');
-    prepareFrameForSrcdoc();
-    if (isVideo) {
-      contentKind = 'localVideo';
-      userMode = 'webgl';
-      pendingLocalVideoBlobUrl = blobUrl;
-      loadWebglSource(blobUrl, 'video');
-      if (fromUserGesture) attemptWebglAutoplay();
-      frame.srcdoc = buildLocalVideoSrcdoc(blobUrl);
-      setMode('webgl', { silent: true });
-      return;
-    }
-    if (isImage) {
-      contentKind = 'localImage';
-      clearWebglSource();
-      userMode = 'canvas';
-      frame.srcdoc = buildLocalImageSrcdoc(blobUrl);
-      setMode('canvas', { silent: true });
-      scheduleVictoriaInit();
-      return;
-    }
-    revokeLocalObjectUrl();
-    contentKind = 'none';
-    frame.srcdoc = errorSrcdoc('Unsupported file type. Use MP4, WebM, MOV, JPG, or PNG.');
-  }
-
-  function loadPage(raw, { pushHistory = true } = {}) {
-    const trimmed = (raw || '').trim();
-    if (trimmed.startsWith('local:')) {
-      if (lastLocalFile && trimmed === lastLocalHistoryKey) {
-        loadLocalFile(lastLocalFile, { pushHistory: false });
-        return;
-      }
-      addressBar.value = trimmed.slice(6);
-      prepareFrameForSrcdoc();
-      frame.srcdoc = errorSrcdoc('Re-open this file with the LOCAL button.');
-      if (pushHistory) syncNavButtons();
-      return;
-    }
-    const url = normalizeUrl(raw);
-    if (!url) return;
-    revokeLocalObjectUrl();
-    clearWebglSource();
-    addressBar.value = url;
-    if (pushHistory) {
-      if (historyIndex < history.length - 1) history.splice(historyIndex + 1);
-      history.push(url);
-      historyIndex = history.length - 1;
-    }
-    syncNavButtons();
-    btnGo.disabled = true;
-    try {
-      if (isDirectVideo(url)) {
-        contentKind = 'directVideo';
-        const src = proxyUrl(url);
-        loadWebglSource(src, 'video');
-        prepareFrameForSrcdoc();
-        frame.srcdoc = buildDirectVideoSrcdoc(url);
-        afterContentLoad();
-        btnGo.disabled = false;
-        return;
-      }
-      contentKind = 'proxied';
-      navigateFrameToProxy(url, () => {
-        btnGo.disabled = false;
-        afterContentLoad();
-      });
-    } catch (err) {
-      contentKind = 'none';
-      prepareFrameForSrcdoc();
-      frame.srcdoc = errorSrcdoc(err.message || 'Failed to load page');
-      btnGo.disabled = false;
-    }
-  }
-
-  document.querySelectorAll('[data-mode]').forEach((btn) => {
-    btn.addEventListener('click', () => setMode(btn.dataset.mode));
+document.querySelectorAll('.color-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.color = btn.dataset.color;
   });
+});
 
-  document.querySelectorAll('[data-effect]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (btn.disabled) return;
-      activeEffect = btn.dataset.effect;
-      updateEffectButtons();
-      applyWebglUniforms();
-      sendVictoriaSettings();
-    });
-  });
+sizeSlider.addEventListener('input', () => {
+  state.size = parseInt(sizeSlider.value, 10);
+  sizeVal.textContent = state.size;
+});
 
-  document.querySelectorAll('[data-preset]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      colorPresetIndex = +btn.dataset.preset;
-      document.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('active', +b.dataset.preset === colorPresetIndex));
-      applyWebglUniforms();
-      sendVictoriaSettings();
-    });
-  });
+brightSlider.addEventListener('input', () => {
+  state.brightness = parseFloat(brightSlider.value);
+  brightVal.textContent = state.brightness.toFixed(1);
+});
 
-  ['btnRain', 'btnVhs', 'btnInterf'].forEach((id) => {
-    document.getElementById(id)?.addEventListener('click', function () {
-      this.classList.toggle('active');
-      applyWebglUniforms();
-    });
-  });
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'navigate' && d.url) navigate(d.url);
+  if (d.type === 'aika-stream-detected' && d.stream) onStreamDetected(d.stream);
+});
 
-  els.sizeSlider?.addEventListener('input', () => {
-    els.sizeVal.textContent = els.sizeSlider.value;
-    applyWebglUniforms();
-    sendVictoriaSettings();
-  });
-  els.brightSlider?.addEventListener('input', () => {
-    els.brightVal.textContent = ((+els.brightSlider.value || 140) / 100).toFixed(1);
-    applyWebglUniforms();
-    sendVictoriaSettings();
-  });
-  [els.glitchSlider, els.chromaSlider, els.crtSlider, els.glowSlider].forEach((sl) => {
-    sl?.addEventListener('input', applyWebglUniforms);
-  });
-  els.volSlider?.addEventListener('input', () => {
-    els.volVal.textContent = els.volSlider.value + '%';
-    if (effectiveMode === 'webgl') restoreSourceVideoVolume();
-    else sendTransport({});
-    sendVictoriaSettings();
-  });
+navigator.serviceWorker?.addEventListener('message', (event) => {
+  const { type, stream } = event.data || {};
+  if (type === 'aika-stream-detected') onStreamDetected(stream);
+});
 
-  els.btnPlay?.addEventListener('click', () => {
-    if (effectiveMode === 'webgl' && sourceVideo) {
-      if (sourceVideo.paused) {
-        sourceVideo.muted = true;
-        sourceVideo.play().then(() => {
-          hidePlayPrompt();
-          sourceVideo.muted = false;
-          restoreSourceVideoVolume();
-          els.btnPlay.textContent = '⏸';
-        }).catch((err) => console.warn('Play failed:', err));
-      } else {
-        sourceVideo.pause();
-        els.btnPlay.textContent = '▶';
-      }
-    } else {
-      const paused = els.btnPlay.dataset.paused !== '0';
-      sendTransport({ action: paused ? 'play' : 'pause' });
-      els.btnPlay.dataset.paused = paused ? '0' : '1';
-      els.btnPlay.textContent = paused ? '⏸' : '▶';
-    }
-  });
-
-  els.seekBar?.addEventListener('input', () => {
-    isSeeking = true;
-    updateSeekFill();
-    els.seekCurrent.textContent = fmtShort(+els.seekBar.value);
-  });
-  els.seekBar?.addEventListener('change', () => {
-    isSeeking = false;
-    const t = +els.seekBar.value;
-    if (effectiveMode === 'webgl') sourceVideo.currentTime = t;
-    else sendTransport({ action: 'seek', time: t });
-  });
-
-  document.querySelectorAll('.speed-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.speed-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      if (effectiveMode === 'webgl') sourceVideo.playbackRate = getPlaybackSpeed();
-      else sendTransport({});
-      sendVictoriaSettings();
-    });
-  });
-
-  btnGo.addEventListener('click', () => loadPage(addressBar.value, { pushHistory: true }));
-  addressBar.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadPage(addressBar.value, { pushHistory: true }); });
-  localFileInput.addEventListener('change', () => {
-    const file = localFileInput.files?.[0];
-    if (file) loadLocalFile(file, { fromUserGesture: true });
-    localFileInput.value = '';
-  });
-
-  const playPrompt = document.getElementById('playPrompt');
-  const playPromptBtn = document.getElementById('playPromptBtn');
-  function playFromPrompt() {
-    sourceVideo.muted = true;
-    sourceVideo.play().then(() => {
-      hidePlayPrompt();
-      sourceVideo.muted = false;
-      restoreSourceVideoVolume();
-      if (els.btnPlay) els.btnPlay.textContent = '⏸';
-    }).catch((err) => console.warn('Play failed:', err));
-  }
-  playPromptBtn?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    playFromPrompt();
-  });
-  playPrompt?.addEventListener('click', () => playFromPrompt());
-  btnBack.addEventListener('click', () => {
-    if (historyIndex <= 0) return;
-    historyIndex -= 1;
-    loadPage(history[historyIndex], { pushHistory: false });
-  });
-  btnForward.addEventListener('click', () => {
-    if (historyIndex >= history.length - 1) return;
-    historyIndex += 1;
-    loadPage(history[historyIndex], { pushHistory: false });
-  });
-  btnRefresh.addEventListener('click', () => {
-    if (historyIndex < 0) return;
-    loadPage(history[historyIndex], { pushHistory: false });
-  });
-  window.addEventListener('message', (e) => {
-    if (e.data?.type === 'navigate' && e.data.url) loadPage(e.data.url, { pushHistory: true });
-  });
-
-  window.addEventListener('resize', resizeCanvases);
-  syncNavButtons();
-  setMode('canvas', { silent: true });
-  updateEffectButtons();
-}
-
+registerSW();
 </script>
 </body>
 </html>

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aika — Canvas Video Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a0f;
+      color: #7dba8a;
+      font-family: 'Courier New', monospace;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    h1 { font-size: 16px; margin-bottom: 20px; color: #4dba6a; }
+    .row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    input {
+      flex: 1;
+      background: #111;
+      border: 1px solid #4dba6a;
+      color: #7dba8a;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    button {
+      background: #4dba6a;
+      color: #0a0a0f;
+      border: none;
+      padding: 8px 16px;
+      font-family: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover { background: #7dba8a; }
+    #status {
+      font-size: 13px;
+      margin-bottom: 16px;
+      min-height: 20px;
+      color: #aaa;
+    }
+    #status.ok { color: #4dba6a; }
+    #status.err { color: #e05050; }
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .panel label {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    video, canvas {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #000;
+      display: block;
+    }
+    #pixelResult {
+      margin-top: 12px;
+      font-size: 12px;
+      padding: 8px;
+      background: #111;
+      border: 1px solid #333;
+    }
+    #pixelSwatch {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      vertical-align: middle;
+      border: 1px solid #555;
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>AIKA — CANVAS VIDEO READ TEST</h1>
+
+<div class="row">
+  <input id="urlInput" type="text"
+    placeholder="Paste a video URL (mp4 or m3u8)..."
+    value="">
+  <button onclick="loadVideo()">LOAD</button>
+  <button onclick="toggleOverlay()">TOGGLE OVERLAY</button>
+</div>
+
+<div id="status">Paste a video URL and click LOAD.</div>
+
+<div class="panels">
+  <div class="panel">
+    <label>Video (native)</label>
+    <video id="vid" controls crossorigin="anonymous" playsinline></video>
+  </div>
+  <div class="panel">
+    <label>Canvas overlay (ASCII)</label>
+    <canvas id="cvs"></canvas>
+  </div>
+</div>
+
+<div id="pixelResult">
+  <span id="pixelSwatch"></span>
+  <span id="pixelText">No pixel data yet.</span>
+</div>
+
+<script>
+  const DENSITY = ' .:-=+*#%@█▓▒░';
+  const vid = document.getElementById('vid');
+  const cvs = document.getElementById('cvs');
+  const ctx = cvs.getContext('2d', { willReadFrequently: true });
+  const status = document.getElementById('status');
+  const pixelSwatch = document.getElementById('pixelSwatch');
+  const pixelText = document.getElementById('pixelText');
+
+  let overlayEnabled = true;
+  let rafId = null;
+  let sampleCanvas = null;
+  let sampleCtx = null;
+
+  function setStatus(msg, type) {
+    status.textContent = msg;
+    status.className = type || '';
+  }
+
+  function loadVideo() {
+    const raw = document.getElementById('urlInput').value.trim();
+    if (!raw) { setStatus('Please paste a URL first.', 'err'); return; }
+
+    // Route through proxy
+    const proxied = '/proxy?url=' + encodeURIComponent(raw);
+    setStatus('Loading: ' + proxied.slice(0, 80) + '...', '');
+
+    vid.src = proxied;
+    vid.crossOrigin = 'anonymous';
+    vid.load();
+    vid.play().catch(() => {
+      setStatus('Autoplay blocked — press play manually.', '');
+    });
+  }
+
+  function toggleOverlay() {
+    overlayEnabled = !overlayEnabled;
+    setStatus('Overlay ' + (overlayEnabled ? 'ON' : 'OFF'), overlayEnabled ? 'ok' : '');
+  }
+
+  function ensureSampleCanvas(w, h) {
+    const W = 320, H = Math.max(1, Math.round(W * (h / w)));
+    if (!sampleCanvas) {
+      sampleCanvas = document.createElement('canvas');
+      sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    if (sampleCanvas.width !== W || sampleCanvas.height !== H) {
+      sampleCanvas.width = W;
+      sampleCanvas.height = H;
+    }
+    return { w: W, h: H };
+  }
+
+  function renderFrame() {
+    rafId = requestAnimationFrame(renderFrame);
+
+    if (vid.paused || vid.ended || !vid.videoWidth) return;
+
+    const vw = vid.videoWidth;
+    const vh = vid.videoHeight;
+    cvs.width = vw;
+    cvs.height = vh;
+
+    // --- PIXEL READ TEST ---
+    // This is the critical test: can we read pixels from a proxied video?
+    const s = ensureSampleCanvas(vw, vh);
+    try {
+      sampleCtx.drawImage(vid, 0, 0, s.w, s.h);
+      const pixel = sampleCtx.getImageData(s.w >> 1, s.h >> 1, 1, 1).data;
+      const r = pixel[0], g = pixel[1], b = pixel[2];
+      pixelSwatch.style.background = `rgb(${r},${g},${b})`;
+      pixelText.textContent =
+        `CENTER PIXEL: rgb(${r}, ${g}, ${b}) — Canvas read SUCCEEDED ✓`;
+      pixelText.style.color = '#4dba6a';
+      setStatus('Canvas pixel read: OK — overlay pipeline works!', 'ok');
+    } catch (e) {
+      pixelText.textContent = 'Canvas read FAILED: ' + e.message;
+      pixelText.style.color = '#e05050';
+      setStatus('TAINTED CANVAS: ' + e.message, 'err');
+      // Stop trying if tainted
+      if (e.name === 'SecurityError') {
+        cancelAnimationFrame(rafId);
+        return;
+      }
+    }
+
+    if (!overlayEnabled) {
+      ctx.drawImage(vid, 0, 0, vw, vh);
+      return;
+    }
+
+    // --- ASCII OVERLAY ---
+    ctx.fillStyle = '#0a0a0f';
+    ctx.fillRect(0, 0, vw, vh);
+
+    const cell = 8;
+    ctx.font = cell + 'px "Courier New", monospace';
+    ctx.textBaseline = 'top';
+
+    try {
+      const img = sampleCtx.getImageData(0, 0, s.w, s.h);
+      const data = img.data;
+      const sx = s.w / vw, sy = s.h / vh;
+      const buckets = {};
+
+      for (let y = 0; y < vh; y += cell) {
+        for (let x = 0; x < vw; x += cell) {
+          const px = Math.min(s.w - 1, ((x + cell / 2) * sx) | 0);
+          const py = Math.min(s.h - 1, ((y + cell / 2) * sy) | 0);
+          const i = (py * s.w + px) * 4;
+          if (data[i + 3] < 10) continue;
+          const avg = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114) / 255;
+          if (avg < 0.04) continue;
+          const t = Math.max(0, Math.min(1, avg * 1.4));
+          const v = Math.round(46 + t * 79);
+          const g = Math.round(125 + t * 43);
+          const b = Math.round(107 + t * 35);
+          const fill = `rgb(${v},${g},${b})`;
+          const ch = DENSITY[DENSITY.length - 1 -
+            Math.min(DENSITY.length - 1, Math.floor(avg * (DENSITY.length - 1)))];
+          if (!buckets[fill]) buckets[fill] = [];
+          buckets[fill].push({ x, y, ch });
+        }
+      }
+
+      for (const fill in buckets) {
+        ctx.fillStyle = fill;
+        for (const g of buckets[fill]) ctx.fillText(g.ch, g.x, g.y);
+      }
+    } catch (e) {
+      // Overlay failed but pixel read above already reported it
+    }
+  }
+
+  vid.addEventListener('play', () => {
+    cancelAnimationFrame(rafId);
+    renderFrame();
+    setStatus('Video playing — reading canvas pixels...', '');
+  });
+
+  vid.addEventListener('error', () => {
+    setStatus('Video error: ' + (vid.error?.message || 'unknown'), 'err');
+  });
+
+  vid.addEventListener('loadedmetadata', () => {
+    setStatus('Video loaded — ' + vid.videoWidth + 'x' + vid.videoHeight +
+      ' — press play or wait for autoplay', '');
+  });
+</script>
+
+</body>
+</html>
