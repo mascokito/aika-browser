@@ -283,6 +283,40 @@
       border-color: var(--viridian);
     }
 
+    #effectList {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .effect-btn {
+      padding: 4px 8px;
+      font-size: 10px;
+    }
+    #colorDualPanel input[type=color] {
+      width: 48px;
+      height: 32px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      background: none;
+      padding: 2px;
+    }
+    .color-mode-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: #888;
+      padding: 4px 10px;
+      font-family: var(--font);
+      font-size: 11px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .color-mode-btn.active {
+      background: var(--viridian);
+      color: var(--bg);
+      border-color: var(--viridian);
+    }
+
     #tabPanels input[type=range],
     #compactBar input[type=range] {
       accent-color: var(--viridian);
@@ -363,17 +397,40 @@
 
       <div id="panelFx" class="tab-panel hidden">
         <div class="panel-label">EFFECT</div>
-        <div class="btn-group">
+        <div id="effectList">
           <button class="effect-btn active" type="button" data-effect="halftone">HALFTONE</button>
+          <button class="effect-btn" type="button" data-effect="thermal">THERMAL</button>
+          <button class="effect-btn" type="button" data-effect="mosaic">MOSAIC</button>
+          <button class="effect-btn" type="button" data-effect="dither">DITHER</button>
+          <button class="effect-btn" type="button" data-effect="phosphor">PHOSPHOR</button>
+          <button class="effect-btn" type="button" data-effect="infrared">INFRARED</button>
+          <button class="effect-btn" type="button" data-effect="chromatic">CHROMATIC</button>
+          <button class="effect-btn" type="button" data-effect="ascii">ASCII+</button>
           <button class="effect-btn" type="button" data-effect="off">OFF</button>
         </div>
-        <div class="panel-label">COLOR</div>
-        <div class="btn-group">
-          <button class="color-btn active" type="button" data-color="viridian">VRD</button>
-          <button class="color-btn" type="button" data-color="midnight">MID</button>
-          <button class="color-btn" type="button" data-color="amber">AMB</button>
-          <button class="color-btn" type="button" data-color="crimson">CRM</button>
-          <button class="color-btn" type="button" data-color="ghost">GST</button>
+        <div class="panel-label">CONTRAST <span id="contrastVal">1.0</span></div>
+        <input type="range" id="contrastSlider" min="0.5" max="2.0" step="0.05" value="1.0">
+        <div class="panel-label">OPACITY <span id="opacityVal">100%</span></div>
+        <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="1">
+        <div class="panel-label">COLOR MODE</div>
+        <div class="btn-group" id="colorModeGroup">
+          <button class="color-mode-btn active" type="button" data-mode="preset">PRESET</button>
+          <button class="color-mode-btn" type="button" data-mode="dual">DUAL</button>
+        </div>
+        <div id="colorPresetPanel">
+          <div class="btn-group">
+            <button class="color-btn active" type="button" data-color="viridian">VRD</button>
+            <button class="color-btn" type="button" data-color="midnight">MID</button>
+            <button class="color-btn" type="button" data-color="amber">AMB</button>
+            <button class="color-btn" type="button" data-color="crimson">CRM</button>
+            <button class="color-btn" type="button" data-color="ghost">GST</button>
+          </div>
+        </div>
+        <div id="colorDualPanel" class="hidden">
+          <div class="panel-label">SHADOW</div>
+          <input type="color" id="colorLowPicker" value="#2e7e6b">
+          <div class="panel-label">HIGHLIGHT</div>
+          <input type="color" id="colorHighPicker" value="#7da78d">
         </div>
       </div>
 
@@ -413,6 +470,11 @@ const state = {
   color: 'viridian',
   size: 8,
   brightness: 1.4,
+  contrast: 1.0,
+  opacity: 1.0,
+  colorLow: [0.18, 0.49, 0.42],
+  colorHigh: [0.49, 0.65, 0.55],
+  colorMode: 'preset',
   muted: true,
   streams: [],
   playbackActive: false,
@@ -429,17 +491,276 @@ const state = {
 window.__lastVideoRect = null;
 
 let gl = null;
-let glProgram = null;
-let glUniforms = {};
+let glPrograms = {};
 let glVideoTex = null;
 let glQuadBuf = null;
 let webglReady = false;
+let glAsciiTex = null;
 
-const COLOR_PRESET_MAP = {
-  viridian: 0, midnight: 1, amber: 2, crimson: 3, ghost: 4,
+const VERT_SRC = `#version 300 es
+in vec2 a_position;
+out vec2 v_uv;
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+const FRAG_HALFTONE = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_cell;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+uniform vec3 u_colorLow;
+uniform vec3 u_colorHigh;
+in vec2 v_uv;
+out vec4 outColor;
+void main() {
+  vec2 cellCoord = floor(gl_FragCoord.xy / u_cell);
+  vec2 cellCenter = (cellCoord + 0.5) * u_cell;
+  vec2 sampleUv = cellCenter / u_res;
+  sampleUv.y = 1.0 - sampleUv.y;
+  vec4 vid = texture(u_video, sampleUv);
+  float luma = dot(vid.rgb, vec3(0.299, 0.587, 0.114));
+  luma = clamp((luma - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  float t = clamp(luma * u_brightness, 0.0, 1.0);
+  if (t < 0.04) { outColor = vec4(0.04, 0.04, 0.06, 1.0); return; }
+  float maxR = u_cell * 0.5;
+  float radius = maxR * (0.2 + t * 0.8);
+  float dist = length(gl_FragCoord.xy - cellCenter);
+  vec3 dotColor = mix(u_colorLow, u_colorHigh, t);
+  vec3 bg = vec3(0.04, 0.04, 0.06);
+  vec3 effectColor = dist <= radius ? dotColor : bg;
+  vec3 passthrough = vid.rgb;
+  outColor = vec4(mix(passthrough, effectColor, u_opacity), 1.0);
+}`;
+
+const FRAG_THERMAL = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+in vec2 v_uv;
+out vec4 outColor;
+vec3 thermal(float t) {
+  t = clamp(t, 0.0, 1.0);
+  if (t < 0.25) return mix(vec3(0.0,0.0,0.0), vec3(0.31,0.0,0.50), t*4.0);
+  if (t < 0.5)  return mix(vec3(0.31,0.0,0.50), vec3(0.78,0.0,0.0), (t-0.25)*4.0);
+  if (t < 0.75) return mix(vec3(0.78,0.0,0.0), vec3(1.0,0.47,0.0), (t-0.5)*4.0);
+  return mix(vec3(1.0,0.47,0.0), vec3(1.0,1.0,1.0), (t-0.75)*4.0);
+}
+void main() {
+  vec2 uv = v_uv; uv.y = 1.0 - uv.y;
+  vec4 vid = texture(u_video, uv);
+  float luma = dot(vid.rgb, vec3(0.299,0.587,0.114));
+  luma = clamp((luma - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  float t = clamp(luma * u_brightness, 0.0, 1.0);
+  vec3 effectColor = thermal(t);
+  outColor = vec4(mix(vid.rgb, effectColor, u_opacity), 1.0);
+}`;
+
+const FRAG_MOSAIC = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_cell;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+uniform vec3 u_colorLow;
+uniform vec3 u_colorHigh;
+in vec2 v_uv;
+out vec4 outColor;
+void main() {
+  vec2 cellCoord = floor(gl_FragCoord.xy / u_cell);
+  vec2 cellCenter = (cellCoord + 0.5) * u_cell;
+  vec2 sampleUv = cellCenter / u_res;
+  sampleUv.y = 1.0 - sampleUv.y;
+  vec4 vid = texture(u_video, sampleUv);
+  float luma = dot(vid.rgb, vec3(0.299,0.587,0.114));
+  luma = clamp((luma - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  float t = clamp(luma * u_brightness, 0.0, 1.0);
+  vec3 effectColor = mix(u_colorLow, u_colorHigh, t);
+  vec2 cellPos = fract(gl_FragCoord.xy / u_cell);
+  float border = step(0.95, max(cellPos.x, cellPos.y));
+  effectColor = mix(effectColor, vec3(0.0), border * 0.5);
+  outColor = vec4(mix(vid.rgb, effectColor, u_opacity), 1.0);
+}`;
+
+const FRAG_DITHER = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_cell;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+uniform vec3 u_colorLow;
+uniform vec3 u_colorHigh;
+in vec2 v_uv;
+out vec4 outColor;
+float bayer4[16] = float[16](
+   0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+  12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+   3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+  15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+);
+void main() {
+  vec2 cellCoord = floor(gl_FragCoord.xy / u_cell);
+  vec2 cellCenter = (cellCoord + 0.5) * u_cell;
+  vec2 sampleUv = cellCenter / u_res;
+  sampleUv.y = 1.0 - sampleUv.y;
+  vec4 vid = texture(u_video, sampleUv);
+  float luma = dot(vid.rgb, vec3(0.299,0.587,0.114));
+  luma = clamp((luma - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  luma = clamp(luma * u_brightness, 0.0, 1.0);
+  ivec2 bx = ivec2(mod(gl_FragCoord.xy, 4.0));
+  float threshold = bayer4[bx.y * 4 + bx.x];
+  vec3 effectColor = luma > threshold ? u_colorHigh : u_colorLow;
+  outColor = vec4(mix(vid.rgb, effectColor, u_opacity), 1.0);
+}`;
+
+const FRAG_PHOSPHOR = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_cell;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+in vec2 v_uv;
+out vec4 outColor;
+void main() {
+  vec2 uv = v_uv; uv.y = 1.0 - uv.y;
+  vec4 vid = texture(u_video, uv);
+  float subpixW = u_cell / 3.0;
+  float subpixX = mod(gl_FragCoord.x, u_cell);
+  vec3 subpixMask = vec3(0.0);
+  if (subpixX < subpixW) subpixMask.r = 1.0;
+  else if (subpixX < subpixW * 2.0) subpixMask.g = 1.0;
+  else subpixMask.b = 1.0;
+  float scanline = 1.0 - 0.25 * step(0.5, mod(gl_FragCoord.y / u_cell, 1.0));
+  float luma = dot(vid.rgb, vec3(0.299,0.587,0.114));
+  luma = clamp((luma - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  vec3 lit = vid.rgb * subpixMask * 3.0 * u_brightness;
+  vec3 bloom = vid.rgb * 0.15 * u_brightness;
+  vec3 effectColor = (lit + bloom) * scanline;
+  outColor = vec4(mix(vid.rgb, effectColor, u_opacity), 1.0);
+}`;
+
+const FRAG_INFRARED = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+in vec2 v_uv;
+out vec4 outColor;
+void main() {
+  vec2 uv = v_uv; uv.y = 1.0 - uv.y;
+  vec4 vid = texture(u_video, uv);
+  float ir = vid.r * 0.7 + vid.g * 0.1 - vid.b * 0.1 + 0.2;
+  ir = clamp((ir - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  ir = clamp(ir * u_brightness, 0.0, 1.0);
+  vec3 effectColor = vec3(ir * 1.05, ir * 0.97, ir * 0.88);
+  outColor = vec4(mix(vid.rgb, effectColor, u_opacity), 1.0);
+}`;
+
+const FRAG_CHROMATIC = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_cell;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+in vec2 v_uv;
+out vec4 outColor;
+void main() {
+  vec2 uv = v_uv; uv.y = 1.0 - uv.y;
+  float offset = u_cell / u_res.x * 2.0;
+  vec2 uvR = uv + vec2(offset, 0.0);
+  vec2 uvB = uv - vec2(offset, 0.0);
+  float r = texture(u_video, clamp(uvR, 0.0, 1.0)).r;
+  float g = texture(u_video, uv).g;
+  float b = texture(u_video, clamp(uvB, 0.0, 1.0)).b;
+  vec3 effectColor = vec3(r, g, b) * u_brightness;
+  effectColor = clamp((effectColor - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  outColor = vec4(mix(texture(u_video, uv).rgb, effectColor, u_opacity), 1.0);
+}`;
+
+const FRAG_ASCII = `#version 300 es
+precision mediump float;
+uniform sampler2D u_video;
+uniform vec2 u_res;
+uniform float u_cell;
+uniform float u_brightness;
+uniform float u_contrast;
+uniform float u_opacity;
+uniform vec3 u_colorLow;
+uniform vec3 u_colorHigh;
+in vec2 v_uv;
+out vec4 outColor;
+float blockFill(vec2 cellPos, float level) {
+  if (level >= 4.0) return 1.0;
+  if (level < 1.0) return 0.0;
+  if (level < 2.0) {
+    vec2 sub = fract(cellPos * 2.0);
+    return step(0.5, sub.x) * step(0.5, sub.y);
+  }
+  if (level < 3.0) {
+    vec2 sub = floor(cellPos * 2.0);
+    return mod(sub.x + sub.y, 2.0);
+  }
+  vec2 sub = fract(cellPos * 2.0);
+  return 1.0 - step(0.5, sub.x) * step(0.5, sub.y);
+}
+void main() {
+  vec2 cellCoord = floor(gl_FragCoord.xy / u_cell);
+  vec2 cellCenter = (cellCoord + 0.5) * u_cell;
+  vec2 sampleUv = cellCenter / u_res;
+  sampleUv.y = 1.0 - sampleUv.y;
+  vec4 vid = texture(u_video, sampleUv);
+  float luma = dot(vid.rgb, vec3(0.299,0.587,0.114));
+  luma = clamp((luma - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  float t = clamp(luma * u_brightness, 0.0, 1.0);
+  float level = t * 4.0;
+  vec2 cellPos = fract(gl_FragCoord.xy / u_cell);
+  float fill = blockFill(cellPos, level);
+  vec3 effectColor = mix(u_colorLow * 0.2, u_colorHigh, fill);
+  vec3 bg = vec3(0.04, 0.04, 0.06);
+  effectColor = mix(bg, effectColor, fill > 0.0 ? 1.0 : 0.0);
+  outColor = vec4(mix(vid.rgb, effectColor, u_opacity), 1.0);
+}`;
+
+const EFFECT_SHADERS = {
+  halftone: FRAG_HALFTONE,
+  thermal: FRAG_THERMAL,
+  mosaic: FRAG_MOSAIC,
+  dither: FRAG_DITHER,
+  phosphor: FRAG_PHOSPHOR,
+  infrared: FRAG_INFRARED,
+  chromatic: FRAG_CHROMATIC,
+  ascii: FRAG_ASCII,
 };
 
-function initWebGL() {
+const EFFECT_UNIFORMS = {
+  halftone:  ['u_video','u_res','u_cell','u_brightness','u_contrast','u_opacity','u_colorLow','u_colorHigh'],
+  thermal:   ['u_video','u_res','u_brightness','u_contrast','u_opacity'],
+  mosaic:    ['u_video','u_res','u_cell','u_brightness','u_contrast','u_opacity','u_colorLow','u_colorHigh'],
+  dither:    ['u_video','u_res','u_cell','u_brightness','u_contrast','u_opacity','u_colorLow','u_colorHigh'],
+  phosphor:  ['u_video','u_res','u_cell','u_brightness','u_contrast','u_opacity'],
+  infrared:  ['u_video','u_brightness','u_contrast','u_opacity'],
+  chromatic: ['u_video','u_res','u_cell','u_brightness','u_contrast','u_opacity'],
+  ascii:     ['u_video','u_res','u_cell','u_brightness','u_contrast','u_opacity','u_colorLow','u_colorHigh'],
+};
+
+function initWebGLPrograms() {
+  glPrograms = {};
   const glCanvas = document.getElementById('aikaGlCanvas');
   gl = glCanvas.getContext('webgl2', {
     alpha: false,
@@ -450,8 +771,7 @@ function initWebGL() {
     preserveDrawingBuffer: true,
   });
   if (!gl) {
-    console.warn('[aika] WebGL2 not available, using 2D halftone fallback');
-    webglReady = false;
+    console.warn('[aika] WebGL2 not available');
     return false;
   }
 
@@ -460,90 +780,43 @@ function initWebGL() {
     gl.shaderSource(s, src);
     gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      console.error('[aika] Shader compile error:', gl.getShaderInfoLog(s));
+      console.error('[aika] Shader error:', gl.getShaderInfoLog(s));
       gl.deleteShader(s);
       return null;
     }
     return s;
   }
 
-  const VERT_SRC = `#version 300 es
-in vec2 a_position;
-out vec2 v_uv;
-void main() {
-  v_uv = a_position * 0.5 + 0.5;
-  gl_Position = vec4(a_position, 0.0, 1.0);
-}`;
-
-  const FRAG_SRC = `#version 300 es
-precision mediump float;
-uniform sampler2D u_video;
-uniform vec2 u_res;
-uniform float u_cell;
-uniform float u_brightness;
-uniform int u_colorPreset;
-in vec2 v_uv;
-out vec4 outColor;
-vec3 paletteColor(float t, int preset) {
-  t = clamp(t, 0.0, 1.0);
-  if (preset == 1) return vec3(5.0/255.0, 16.0/255.0, (27.0+t*80.0)/255.0);
-  if (preset == 2) return vec3(212.0*t/255.0, 132.0*t/255.0, 42.0*t/255.0);
-  if (preset == 3) return vec3((40.0+t*200.0)/255.0, 8.0/255.0, 24.0/255.0);
-  if (preset == 4) { float g=(120.0+t*120.0)/255.0; return vec3(g,g,g+8.0/255.0); }
-  return vec3((46.0+t*79.0)/255.0,(125.0+t*43.0)/255.0,(107.0+t*35.0)/255.0);
-}
-void main() {
-  vec2 cellCoord = floor(gl_FragCoord.xy / u_cell);
-  vec2 cellCenter = (cellCoord + 0.5) * u_cell;
-  vec2 sampleUv = cellCenter / u_res;
-  sampleUv.y = 1.0 - sampleUv.y;
-  vec4 vid = texture(u_video, sampleUv);
-  if (vid.a < 0.04) { outColor = vec4(0.04, 0.04, 0.06, 1.0); return; }
-  float luma = dot(vid.rgb, vec3(0.299, 0.587, 0.114));
-  float t = clamp(luma * u_brightness, 0.0, 1.0);
-  if (t < 0.04) { outColor = vec4(0.04, 0.04, 0.06, 1.0); return; }
-  float maxR = u_cell * 0.5;
-  float radius = maxR * (0.2 + t * 0.8);
-  float dist = length(gl_FragCoord.xy - cellCenter);
-  if (dist <= radius) {
-    outColor = vec4(paletteColor(t, u_colorPreset), 1.0);
-  } else {
-    outColor = vec4(0.04, 0.04, 0.06, 1.0);
-  }
-}`;
-
   const vert = compileShader(gl.VERTEX_SHADER, VERT_SRC);
-  const frag = compileShader(gl.FRAGMENT_SHADER, FRAG_SRC);
-  if (!vert || !frag) {
-    webglReady = false;
-    return false;
-  }
+  if (!vert) return false;
 
-  glProgram = gl.createProgram();
-  gl.attachShader(glProgram, vert);
-  gl.attachShader(glProgram, frag);
-  gl.linkProgram(glProgram);
-  if (!gl.getProgramParameter(glProgram, gl.LINK_STATUS)) {
-    console.error('[aika] Program link error:', gl.getProgramInfoLog(glProgram));
-    webglReady = false;
-    return false;
+  for (const [effect, fragSrc] of Object.entries(EFFECT_SHADERS)) {
+    const frag = compileShader(gl.FRAGMENT_SHADER, fragSrc);
+    if (!frag) continue;
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vert);
+    gl.attachShader(program, frag);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error('[aika] Link error for', effect, ':', gl.getProgramInfoLog(program));
+      continue;
+    }
+
+    const uniforms = {};
+    const posAttr = gl.getAttribLocation(program, 'a_position');
+    EFFECT_UNIFORMS[effect].forEach(name => {
+      uniforms[name] = gl.getUniformLocation(program, name);
+    });
+
+    glPrograms[effect] = { program, uniforms, posAttr };
   }
 
   glQuadBuf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, glQuadBuf);
   gl.bufferData(gl.ARRAY_BUFFER,
-    new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+    new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]),
     gl.STATIC_DRAW);
-
-  gl.useProgram(glProgram);
-  glUniforms = {
-    position: gl.getAttribLocation(glProgram, 'a_position'),
-    video: gl.getUniformLocation(glProgram, 'u_video'),
-    res: gl.getUniformLocation(glProgram, 'u_res'),
-    cell: gl.getUniformLocation(glProgram, 'u_cell'),
-    brightness: gl.getUniformLocation(glProgram, 'u_brightness'),
-    colorPreset: gl.getUniformLocation(glProgram, 'u_colorPreset'),
-  };
 
   glVideoTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, glVideoTex);
@@ -552,31 +825,32 @@ void main() {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-  glCanvas.addEventListener('webglcontextlost', (e) => {
+  glCanvas.addEventListener('webglcontextlost', e => {
     e.preventDefault();
     webglReady = false;
-    console.warn('[aika] WebGL context lost');
   });
   glCanvas.addEventListener('webglcontextrestored', () => {
-    initWebGL();
+    initWebGLPrograms();
   });
 
-  webglReady = true;
-  console.log('[aika] WebGL2 halftone initialized');
-  return true;
+  webglReady = Object.keys(glPrograms).length > 0;
+  console.log('[aika] WebGL2 programs compiled:', Object.keys(glPrograms).join(', '));
+  return webglReady;
 }
 
-function renderWebGLHalftone() {
-  if (!webglReady || !gl) return false;
+function renderWebGL() {
+  const effect = state.effect;
+  if (!webglReady || !gl || !glPrograms[effect]) return false;
   if (aikavid.readyState < 2) return false;
 
+  const glCanvas = document.getElementById('aikaGlCanvas');
   const w = aikavid.videoWidth;
   const h = aikavid.videoHeight;
   if (!w || !h) return false;
 
-  if (aikaGlCanvas.width !== w || aikaGlCanvas.height !== h) {
-    aikaGlCanvas.width = w;
-    aikaGlCanvas.height = h;
+  if (glCanvas.width !== w || glCanvas.height !== h) {
+    glCanvas.width = w;
+    glCanvas.height = h;
     gl.viewport(0, 0, w, h);
   }
 
@@ -585,21 +859,27 @@ function renderWebGLHalftone() {
   try {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, aikavid);
   } catch (e) {
-    console.warn('[aika] WebGL texImage2D failed:', e.message);
+    console.warn('[aika] texImage2D:', e.message);
     webglReady = false;
     return false;
   }
 
-  gl.useProgram(glProgram);
-  gl.uniform1i(glUniforms.video, 0);
-  gl.uniform2f(glUniforms.res, w, h);
-  gl.uniform1f(glUniforms.cell, Math.max(2, state.size));
-  gl.uniform1f(glUniforms.brightness, state.brightness);
-  gl.uniform1i(glUniforms.colorPreset, COLOR_PRESET_MAP[state.color] ?? 0);
+  const { program, uniforms, posAttr } = glPrograms[effect];
+  gl.useProgram(program);
+
+  const u = uniforms;
+  if (u.u_video !== null) gl.uniform1i(u.u_video, 0);
+  if (u.u_res !== null) gl.uniform2f(u.u_res, w, h);
+  if (u.u_cell !== null) gl.uniform1f(u.u_cell, Math.max(2, state.size));
+  if (u.u_brightness !== null) gl.uniform1f(u.u_brightness, state.brightness);
+  if (u.u_contrast !== null) gl.uniform1f(u.u_contrast, state.contrast);
+  if (u.u_opacity !== null) gl.uniform1f(u.u_opacity, state.opacity);
+  if (u.u_colorLow !== null) gl.uniform3fv(u.u_colorLow, state.colorLow);
+  if (u.u_colorHigh !== null) gl.uniform3fv(u.u_colorHigh, state.colorHigh);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, glQuadBuf);
-  gl.enableVertexAttribArray(glUniforms.position);
-  gl.vertexAttribPointer(glUniforms.position, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(posAttr);
+  gl.vertexAttribPointer(posAttr, 2, gl.FLOAT, false, 0, 0);
   gl.drawArrays(gl.TRIANGLES, 0, 6);
 
   return true;
@@ -871,10 +1151,11 @@ function renderFrame(ts) {
     return;
   }
 
-  if (state.effect === 'halftone' && webglReady) {
+  const webglEffects = ['halftone','thermal','mosaic','dither','phosphor','infrared','chromatic','ascii'];
+  if (webglEffects.includes(state.effect) && webglReady) {
     aikaGlCanvas.style.display = 'block';
     aikaCanvas.style.display = 'none';
-    renderWebGLHalftone();
+    renderWebGL();
     return;
   }
 
@@ -988,6 +1269,46 @@ const sizeSlider = document.getElementById('sizeSlider');
 const sizeVal = document.getElementById('sizeVal');
 const brightSlider = document.getElementById('brightSlider');
 const brightVal = document.getElementById('brightVal');
+const contrastSlider = document.getElementById('contrastSlider');
+const contrastVal = document.getElementById('contrastVal');
+const opacitySlider = document.getElementById('opacitySlider');
+const opacityVal = document.getElementById('opacityVal');
+
+const PRESET_COLORS = {
+  viridian: { low: [0.18, 0.49, 0.42], high: [0.49, 0.65, 0.55] },
+  midnight: { low: [0.02, 0.06, 0.11], high: [0.04, 0.12, 0.22] },
+  amber:    { low: [0.20, 0.10, 0.02], high: [0.83, 0.52, 0.16] },
+  crimson:  { low: [0.16, 0.03, 0.09], high: [0.94, 0.10, 0.15] },
+  ghost:    { low: [0.47, 0.47, 0.48], high: [0.90, 0.90, 0.91] },
+};
+
+function applyPresetColor(name) {
+  const p = PRESET_COLORS[name];
+  if (!p) return;
+  state.colorLow = p.low;
+  state.colorHigh = p.high;
+  state.color = name;
+}
+
+function hexToVec3(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  return [r, g, b];
+}
+
+function updateTimeUI() {
+  const dur = aikavid.duration;
+  const cur = aikavid.currentTime;
+  if (!isFinite(dur) || dur === 0) {
+    timeDisplay.textContent = formatTime(cur) + ' / --:--';
+    return;
+  }
+  seekBar.value = (cur / dur) * 100;
+  timeDisplay.textContent = formatTime(cur) + ' / ' + formatTime(dur);
+}
+
+let isSeeking = false;
 
 btnGo.addEventListener('click', () => navigate(urlInput.value.trim()));
 urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(urlInput.value.trim()); });
@@ -1053,15 +1374,19 @@ aikavid.addEventListener('playing', () => {
   tapToPlay.classList.add('hidden');
 });
 
-aikavid.addEventListener('timeupdate', () => {
-  if (!aikavid.duration) return;
-  const cur = aikavid.currentTime;
-  const dur = aikavid.duration;
-  seekBar.value = (cur / dur) * 100;
-  timeDisplay.textContent = formatTime(cur) + ' / ' + formatTime(dur);
+aikavid.addEventListener('loadedmetadata', () => {
+  seekBar.max = 100;
+  updateTimeUI();
 });
 
-let isSeeking = false;
+aikavid.addEventListener('durationchange', () => {
+  updateTimeUI();
+});
+
+aikavid.addEventListener('timeupdate', () => {
+  if (!isSeeking) updateTimeUI();
+});
+
 seekBar.addEventListener('mousedown', () => { isSeeking = true; });
 seekBar.addEventListener('touchstart', () => { isSeeking = true; });
 seekBar.addEventListener('input', () => {
@@ -1090,12 +1415,40 @@ document.querySelectorAll('.effect-btn').forEach(btn => {
   });
 });
 
+document.querySelectorAll('.color-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.color-mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.colorMode = btn.dataset.mode;
+    document.getElementById('colorPresetPanel').classList.toggle('hidden', state.colorMode !== 'preset');
+    document.getElementById('colorDualPanel').classList.toggle('hidden', state.colorMode !== 'dual');
+  });
+});
+
+document.getElementById('colorLowPicker').addEventListener('input', e => {
+  state.colorLow = hexToVec3(e.target.value);
+});
+
+document.getElementById('colorHighPicker').addEventListener('input', e => {
+  state.colorHigh = hexToVec3(e.target.value);
+});
+
 document.querySelectorAll('.color-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    state.color = btn.dataset.color;
+    applyPresetColor(btn.dataset.color);
   });
+});
+
+contrastSlider.addEventListener('input', () => {
+  state.contrast = parseFloat(contrastSlider.value);
+  contrastVal.textContent = state.contrast.toFixed(2);
+});
+
+opacitySlider.addEventListener('input', () => {
+  state.opacity = parseFloat(opacitySlider.value);
+  opacityVal.textContent = Math.round(state.opacity * 100) + '%';
 });
 
 sizeSlider.addEventListener('input', () => {
@@ -1127,7 +1480,7 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
 });
 
 registerSW();
-initWebGL();
+initWebGLPrograms();
 </script>
 </body>
 </html>
