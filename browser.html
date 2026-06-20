@@ -42,100 +42,21 @@
     #browseView.hidden { opacity: 0; pointer-events: none; }
     #browserFrame { width: 100%; height: 100%; border: none; background: #000; }
 
-    #streamBadge {
-      position: fixed;
-      bottom: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--viridian);
-      color: var(--bg);
-      padding: 10px 18px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: bold;
-      cursor: pointer;
-      z-index: 200;
-      transition: opacity 0.3s;
-      min-height: 44px;
-      display: flex;
-      align-items: center;
-      -webkit-tap-highlight-color: transparent;
-    }
-    #streamBadge.hidden { opacity: 0; pointer-events: none; }
-
-    #streamPicker {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      background: var(--bg2);
-      border-top: 1px solid var(--viridian);
-      max-height: 50vh;
-      overflow-y: auto;
-      z-index: 300;
-      transition: transform 0.3s ease;
-    }
-    #streamPicker.hidden { transform: translateY(100%); }
-    #streamPickerHeader {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      color: var(--viridian);
-      font-size: 13px;
-    }
-    .stream-item {
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: var(--text);
-      font-size: 12px;
-      min-height: 48px;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .stream-item:active { background: #1a2a1a; }
-    .stream-type {
-      background: var(--viridian);
-      color: var(--bg);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: bold;
-      min-width: 40px;
-      text-align: center;
-    }
-    .stream-domain {
-      color: #666;
-      font-size: 11px;
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .stream-label {
-      color: var(--viridian);
-      font-size: 12px;
-      min-width: 60px;
-    }
-
     #playbackView {
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: #000;
-      z-index: 50;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: opacity 0.3s ease;
+      background: transparent;
+      z-index: 150;
+      transition: opacity 0.2s ease;
     }
-    #playbackView.hidden { opacity: 0; pointer-events: none; }
+    #playbackView.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
 
     #videoWrapper {
       position: relative;
-      max-width: 100%;
-      max-height: 100%;
+      width: 100%;
+      height: 100%;
     }
 
     #aikavid {
@@ -146,29 +67,27 @@
       pointer-events: none;
     }
 
-    #aikaCanvas {
+    #aikaCanvas, #aikaGlCanvas {
       position: absolute;
       top: 0; left: 0;
-      width: 100%;
-      height: 100%;
+      width: 100%; height: 100%;
       pointer-events: none;
     }
 
-    #aikaGlCanvas {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      display: none;
-    }
+    #aikaGlCanvas { display: none; }
 
     #playbackControls {
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      background: linear-gradient(transparent, rgba(0,0,0,0.9));
-      padding: 24px 16px 16px;
-      z-index: 60;
+      position: fixed;
+      left: 0; right: 0;
+      bottom: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.85));
+      padding: 20px 16px 12px;
+      z-index: 160;
+      transition: opacity 0.5s ease;
+    }
+    #playbackControls.hidden {
+      opacity: 0;
+      pointer-events: none;
     }
     #transportBar {
       display: flex;
@@ -257,11 +176,11 @@
       color: var(--bg);
       border-color: var(--viridian);
     }
-    #btnKill {
+    #btnDetach {
       border-color: #e05050;
       color: #e05050;
     }
-    #btnKill:active { background: #e05050; color: #fff; }
+    #btnDetach:active { background: #e05050; color: #fff; }
 
     #urlInput {
       flex: 1;
@@ -310,18 +229,6 @@
     </iframe>
   </div>
 
-  <div id="streamPicker" class="hidden">
-    <div id="streamPickerHeader">
-      <span id="streamCount">0 streams detected</span>
-      <button id="btnDismissPicker" type="button" aria-label="Close">✕</button>
-    </div>
-    <div id="streamList"></div>
-  </div>
-
-  <div id="streamBadge" class="hidden">
-    <span id="badgeText">● 0 streams</span>
-  </div>
-
   <div id="playbackView" class="hidden">
     <div id="tapToPlay" class="hidden">
       <div id="tapToPlayBtn">▶</div>
@@ -332,8 +239,9 @@
       <canvas id="aikaCanvas"></canvas>
       <canvas id="aikaGlCanvas"></canvas>
     </div>
+  </div>
 
-    <div id="playbackControls">
+  <div id="playbackControls" class="hidden">
       <div id="transportBar">
         <button id="btnPlayPause" type="button">⏸</button>
         <span id="timeDisplay">0:00 / 0:00</span>
@@ -373,10 +281,9 @@
         <div class="ctrl-group ctrl-actions">
           <button id="btnMute" type="button">UNMUTE</button>
           <button id="btnFullscreen" type="button">⛶ FULLSCREEN</button>
-          <button id="btnKill" type="button">KILL STREAM</button>
+          <button id="btnDetach" type="button">⊠ DETACH</button>
         </div>
       </div>
-    </div>
   </div>
 
 <script>
@@ -387,7 +294,6 @@ const state = {
   brightness: 1.4,
   muted: true,
   streams: [],
-  pickerOpen: false,
   playbackActive: false,
   rafId: null,
   lastFrame: 0,
@@ -397,6 +303,9 @@ const state = {
   sampleCtx: null,
   sampleDims: null,
 };
+
+let controlsHideTimer = null;
+window.__lastVideoRect = null;
 
 let gl = null;
 let glProgram = null;
@@ -625,114 +534,101 @@ async function onStreamDetected(stream) {
   if (state.playbackActive) return;
 
   const resolved = await resolveEmbedStream(stream);
-  let added = false;
   resolved.forEach(s => {
     const exists = state.streams.some(x => x.realUrl === s.realUrl);
     if (!exists) {
       state.streams.push(s);
-      added = true;
-      console.log('[aika] Stream detected:', s.type, s.domain, s.source || '');
+      console.log('[aika] Stream cached:', s.type, s.domain, s.source || '');
     }
   });
-  if (added) updateStreamBadge();
 }
 
-function updateStreamBadge() {
-  const count = state.streams.length;
-  streamCount.textContent = `${count} stream${count !== 1 ? 's' : ''} detected`;
-  if (count === 0) {
-    streamBadge.classList.add('hidden');
-    return;
-  }
-  streamBadge.classList.remove('hidden');
-  badgeText.textContent = `● ${count} stream${count > 1 ? 's' : ''} detected`;
+function showControls() {
+  playbackControls.classList.remove('hidden');
+  clearTimeout(controlsHideTimer);
+  controlsHideTimer = setTimeout(() => {
+    playbackControls.classList.add('hidden');
+  }, 3000);
 }
 
-function openStreamPicker() {
-  streamList.innerHTML = '';
-  state.streams.forEach((stream, i) => {
-    const item = document.createElement('div');
-    item.className = 'stream-item';
-    item.innerHTML = `
-      <span class="stream-type">${stream.type}</span>
-      <span class="stream-label">Server ${i + 1}</span>
-      <span class="stream-domain">${stream.domain}</span>
-    `;
-    item.addEventListener('click', () => loadStream(stream));
-    streamList.appendChild(item);
-  });
-  streamPicker.classList.remove('hidden');
-  streamBadge.classList.add('hidden');
-  state.pickerOpen = true;
-}
+function positionOverlay(rect) {
+  const iframeRect = browserFrame.getBoundingClientRect();
+  const left = iframeRect.left + rect.left;
+  const top = iframeRect.top + rect.top;
+  const width = rect.width;
+  const height = rect.height;
 
-function closeStreamPicker() {
-  streamPicker.classList.add('hidden');
-  state.pickerOpen = false;
-  if (state.streams.length > 0 && !state.playbackActive) {
-    streamBadge.classList.remove('hidden');
+  playbackView.style.position = 'fixed';
+  playbackView.style.left = left + 'px';
+  playbackView.style.top = top + 'px';
+  playbackView.style.width = width + 'px';
+  playbackView.style.height = height + 'px';
+
+  const glCanvas = document.getElementById('aikaGlCanvas');
+  const rw = Math.round(width);
+  const rh = Math.round(height);
+  if (glCanvas.width !== rw || glCanvas.height !== rh) {
+    glCanvas.width = rw;
+    glCanvas.height = rh;
+    if (webglReady && gl) gl.viewport(0, 0, rw, rh);
   }
 }
 
-function loadStream(stream) {
-  closeStreamPicker();
-  aikavid.src = stream.proxyUrl;
+async function attachToVideo(msg) {
+  state.playbackActive = true;
+  window.__lastVideoRect = msg.rect;
+
+  let videoSrc = msg.src;
+
+  if (videoSrc.startsWith('blob:') || !videoSrc) {
+    const hlsStream = state.streams.find(s => s.type === 'HLS');
+    const mp4Stream = state.streams.find(s => s.type === 'MP4');
+    const cached = hlsStream || mp4Stream;
+    if (cached) {
+      videoSrc = cached.proxyUrl;
+    } else {
+      console.warn('[aika] blob: src and no cached stream URL — waiting');
+      browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
+      state.playbackActive = false;
+      return;
+    }
+  }
+
+  if (videoSrc.startsWith('http')) {
+    videoSrc = '/proxy?url=' + encodeURIComponent(videoSrc);
+  }
+
+  aikavid.src = videoSrc;
   aikavid.muted = true;
   state.muted = true;
   btnMute.textContent = 'UNMUTE';
   btnMute.classList.remove('active');
+  if (msg.currentTime) aikavid.currentTime = msg.currentTime;
   aikavid.load();
-  enterPlaybackMode();
+
+  positionOverlay(msg.rect);
+  playbackView.classList.remove('hidden');
+
   tapToPlay.classList.remove('hidden');
   btnPlayPause.textContent = '▶';
+
+  playbackControls.classList.remove('hidden');
+  showControls();
 }
 
-function sizeVideoWrapper() {
-  if (!aikavid.videoWidth || !aikavid.videoHeight) return;
-
-  const vw = aikavid.videoWidth;
-  const vh = aikavid.videoHeight;
-  const aspectRatio = vw / vh;
-
-  const viewW = window.innerWidth;
-  const viewH = window.innerHeight - 80;
-
-  let renderW, renderH;
-
-  if (viewW / viewH > aspectRatio) {
-    renderH = viewH;
-    renderW = renderH * aspectRatio;
-  } else {
-    renderW = viewW;
-    renderH = renderW / aspectRatio;
-  }
-
-  videoWrapper.style.width = Math.round(renderW) + 'px';
-  videoWrapper.style.height = Math.round(renderH) + 'px';
-}
-
-function enterPlaybackMode() {
-  state.playbackActive = true;
-  addressBar.classList.add('hidden');
-  browseView.classList.add('hidden');
-  streamBadge.classList.add('hidden');
-  streamPicker.classList.add('hidden');
-  playbackView.classList.remove('hidden');
-  sizeVideoWrapper();
-  startRenderLoop();
-}
-
-function killStream() {
+function detachOverlay() {
   state.playbackActive = false;
-  aikavid.pause();
-  aikavid.removeAttribute('src');
-  aikavid.load();
+
   cancelAnimationFrame(state.rafId);
   state.rafId = null;
   state.lastFrame = 0;
   state.lastVw = 0;
   state.lastVh = 0;
   state.sampleDims = null;
+
+  aikavid.pause();
+  aikavid.removeAttribute('src');
+  aikavid.load();
 
   const ctx = aikaCanvas.getContext('2d');
   ctx.clearRect(0, 0, aikaCanvas.width, aikaCanvas.height);
@@ -741,12 +637,13 @@ function killStream() {
   tapToPlay.classList.add('hidden');
 
   playbackView.classList.add('hidden');
-  browseView.classList.remove('hidden');
-  addressBar.classList.remove('hidden');
+  playbackControls.classList.add('hidden');
+  clearTimeout(controlsHideTimer);
 
+  browserFrame.contentWindow?.postMessage({ type: 'aika-video-detach' }, '*');
+
+  window.__lastVideoRect = null;
   state.streams = [];
-  state.pickerOpen = false;
-  updateStreamBadge();
 }
 
 function formatTime(s) {
@@ -869,11 +766,10 @@ function startRenderLoop() {
 
 function navigate(url) {
   if (!url) return;
+  if (state.playbackActive) detachOverlay();
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
   urlInput.value = url;
   state.streams = [];
-  updateStreamBadge();
-  closeStreamPicker();
   browserFrame.src = '/proxy?url=' + encodeURIComponent(url);
 }
 
@@ -886,18 +782,13 @@ const btnRefresh = document.getElementById('btnRefresh');
 const btnScan = document.getElementById('btnScan');
 const browseView = document.getElementById('browseView');
 const browserFrame = document.getElementById('browserFrame');
-const streamBadge = document.getElementById('streamBadge');
-const badgeText = document.getElementById('badgeText');
-const streamPicker = document.getElementById('streamPicker');
-const streamList = document.getElementById('streamList');
-const streamCount = document.getElementById('streamCount');
-const btnDismissPicker = document.getElementById('btnDismissPicker');
 const playbackView = document.getElementById('playbackView');
+const playbackControls = document.getElementById('playbackControls');
 const videoWrapper = document.getElementById('videoWrapper');
 const aikavid = document.getElementById('aikavid');
 const aikaCanvas = document.getElementById('aikaCanvas');
 const aikaGlCanvas = document.getElementById('aikaGlCanvas');
-const btnKill = document.getElementById('btnKill');
+const btnDetach = document.getElementById('btnDetach');
 const btnMute = document.getElementById('btnMute');
 const btnFullscreen = document.getElementById('btnFullscreen');
 const btnPlayPause = document.getElementById('btnPlayPause');
@@ -919,12 +810,21 @@ btnScan.addEventListener('click', () => {
   browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
 });
 
-streamBadge.addEventListener('click', openStreamPicker);
-btnDismissPicker.addEventListener('click', closeStreamPicker);
-btnKill.addEventListener('click', killStream);
+btnDetach.addEventListener('click', detachOverlay);
 
-aikavid.addEventListener('loadedmetadata', sizeVideoWrapper);
-window.addEventListener('resize', sizeVideoWrapper);
+playbackView.addEventListener('click', showControls);
+playbackControls.addEventListener('click', () => {
+  clearTimeout(controlsHideTimer);
+  controlsHideTimer = setTimeout(() => {
+    playbackControls.classList.add('hidden');
+  }, 3000);
+});
+
+window.addEventListener('resize', () => {
+  if (state.playbackActive && window.__lastVideoRect) {
+    positionOverlay(window.__lastVideoRect);
+  }
+});
 
 btnPlayPause.addEventListener('click', () => {
   if (aikavid.paused) {
@@ -994,7 +894,9 @@ document.addEventListener('fullscreenchange', () => {
   } else {
     btnFullscreen.textContent = '⛶ FULLSCREEN';
   }
-  setTimeout(sizeVideoWrapper, 100);
+  if (state.playbackActive && window.__lastVideoRect) {
+    setTimeout(() => positionOverlay(window.__lastVideoRect), 100);
+  }
 });
 
 btnMute.addEventListener('click', () => {
@@ -1035,6 +937,11 @@ window.addEventListener('message', (e) => {
   if (!d || typeof d !== 'object') return;
   if (d.type === 'navigate' && d.url) navigate(d.url);
   if (d.type === 'aika-stream-detected' && d.stream) onStreamDetected(d.stream);
+  if (d.type === 'aika-video-attach') attachToVideo(d);
+  if (d.type === 'aika-video-rect') {
+    window.__lastVideoRect = d.rect;
+    if (state.playbackActive) positionOverlay(d.rect);
+  }
 });
 
 navigator.serviceWorker?.addEventListener('message', (event) => {
