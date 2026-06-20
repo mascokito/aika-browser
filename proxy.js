@@ -156,21 +156,37 @@ function buildInjectedScript(pageUrl) {
     var rect = v.getBoundingClientRect();
     return {
       src: v.currentSrc || v.src || '',
-      rect: {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-      },
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       videoWidth: v.videoWidth,
       videoHeight: v.videoHeight,
       currentTime: v.currentTime,
       paused: v.paused,
+      duration: v.duration || 0,
       area: rect.width * rect.height,
     };
   }
 
+  function isMainPlayer(v) {
+    var rect = v.getBoundingClientRect();
+    if (rect.width < 320 || rect.height < 180) return false;
+    if (v.loop) return false;
+    var allVideos = Array.from(document.querySelectorAll('video'));
+    var myArea = rect.width * rect.height;
+    for (var i = 0; i < allVideos.length; i++) {
+      if (allVideos[i] === v) continue;
+      var r = allVideos[i].getBoundingClientRect();
+      if (r.width * r.height > myArea) return false;
+    }
+    return true;
+  }
+
+  function isLongEnough(v) {
+    if (!v.duration || isNaN(v.duration) || v.duration === Infinity) return true;
+    return v.duration >= 60;
+  }
+
   function attachVideo(v, trigger) {
+    if (window.__aikaActiveVideo) return;
     if (v.__aikaAttached) return;
     var info = getVideoInfo(v);
     if (!info.rect.width || !info.rect.height) return;
@@ -187,6 +203,7 @@ function buildInjectedScript(pageUrl) {
       videoWidth: info.videoWidth,
       videoHeight: info.videoHeight,
       currentTime: info.currentTime,
+      duration: info.duration,
       trigger: trigger,
     }, '*');
   }
@@ -217,26 +234,146 @@ function buildInjectedScript(pageUrl) {
 
   document.addEventListener('click', function(e) {
     var v = e.target.closest('video');
-    if (v) {
-      e.preventDefault();
-      e.stopPropagation();
-      attachVideo(v, 'tap');
-      startRectSync();
-      return;
-    }
+    if (!v) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (v.loop && v.duration > 0 && v.duration < 10) return;
+
+    attachVideo(v, 'tap');
+    startRectSync();
   }, true);
 
   document.addEventListener('play', function(e) {
     if (e.target.tagName !== 'VIDEO') return;
     if (window.__aikaActiveVideo) return;
     var v = e.target;
-    setTimeout(function() {
-      if (!v.paused && !v.__aikaAttached) {
-        attachVideo(v, 'autoplay');
-        startRectSync();
-      }
-    }, 500);
+
+    function tryAttach() {
+      if (window.__aikaActiveVideo) return;
+      if (v.paused || v.__aikaAttached) return;
+      if (!isMainPlayer(v)) return;
+      if (!isLongEnough(v)) return;
+      attachVideo(v, 'autoplay');
+      startRectSync();
+    }
+
+    if (v.readyState >= 1) {
+      setTimeout(tryAttach, 300);
+    } else {
+      v.addEventListener('loadedmetadata', function onMeta() {
+        v.removeEventListener('loadedmetadata', onMeta);
+        setTimeout(tryAttach, 300);
+      });
+    }
   }, true);
+
+  var PLAYER_IFRAME_PATTERNS = [
+    'zilla-networks.com',
+    'mp4upload.com',
+    'streamtape.com',
+    'doodstream.com',
+    'upstream.to',
+    'mixdrop.co',
+    'filemoon.sx',
+  ];
+
+  function findPlayerIframes() {
+    var iframes = Array.from(document.querySelectorAll('iframe'));
+    return iframes.filter(function(f) {
+      var src = f.src || f.getAttribute('src') || '';
+      return PLAYER_IFRAME_PATTERNS.some(function(p) {
+        return src.includes(p);
+      });
+    });
+  }
+
+  var aikaShims = [];
+
+  function installEmbedShims() {
+    aikaShims.forEach(function(s) { s.parentNode && s.parentNode.removeChild(s); });
+    aikaShims = [];
+
+    findPlayerIframes().forEach(function(iframe) {
+      var rect = iframe.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+
+      var shim = document.createElement('div');
+      shim.setAttribute('data-aika-shim', 'true');
+      shim.style.cssText = [
+        'position:fixed',
+        'left:' + rect.left + 'px',
+        'top:' + rect.top + 'px',
+        'width:' + rect.width + 'px',
+        'height:' + rect.height + 'px',
+        'z-index:2147483646',
+        'cursor:pointer',
+        'background:transparent',
+      ].join(';');
+
+      shim.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        shim.parentNode && shim.parentNode.removeChild(shim);
+        aikaShims = aikaShims.filter(function(s) { return s !== shim; });
+
+        var iframeRect = iframe.getBoundingClientRect();
+        var embedSrc = iframe.src || '';
+
+        window.parent.postMessage({
+          type: 'aika-embed-attach',
+          rect: {
+            left: iframeRect.left,
+            top: iframeRect.top,
+            width: iframeRect.width,
+            height: iframeRect.height,
+          },
+          embedSrc: embedSrc,
+          trigger: 'tap',
+        }, '*');
+      });
+
+      document.body.appendChild(shim);
+      aikaShims.push(shim);
+    });
+  }
+
+  function updateShimPositions() {
+    var iframes = findPlayerIframes();
+    aikaShims.forEach(function(shim, i) {
+      var iframe = iframes[i];
+      if (!iframe) return;
+      var rect = iframe.getBoundingClientRect();
+      shim.style.left = rect.left + 'px';
+      shim.style.top = rect.top + 'px';
+      shim.style.width = rect.width + 'px';
+      shim.style.height = rect.height + 'px';
+    });
+  }
+
+  function setupEmbedDetection() {
+    installEmbedShims();
+    if (!window.__aikaEmbedObs) {
+      window.__aikaEmbedObs = new MutationObserver(function() {
+        installEmbedShims();
+      });
+      if (document.body) {
+        window.__aikaEmbedObs.observe(document.body, { childList: true, subtree: true });
+      }
+    }
+    if (!window.__aikaShimScrollBound) {
+      window.__aikaShimScrollBound = true;
+      window.addEventListener('scroll', updateShimPositions, { passive: true });
+      window.addEventListener('resize', updateShimPositions, { passive: true });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupEmbedDetection);
+  } else {
+    setTimeout(setupEmbedDetection, 500);
+  }
+  setTimeout(setupEmbedDetection, 2000);
 
   document.addEventListener('click', function(e) {
     const a = e.target.closest('a');
@@ -344,6 +481,7 @@ function buildInjectedScript(pageUrl) {
         window.__aikaActiveVideo.__aikaAttached = false;
         window.__aikaActiveVideo = null;
       }
+      setTimeout(setupEmbedDetection, 100);
     }
   });
 })();

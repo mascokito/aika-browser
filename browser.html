@@ -531,10 +531,11 @@ async function resolveEmbedStream(stream) {
 }
 
 async function onStreamDetected(stream) {
-  if (state.playbackActive) return;
+  if (!stream.timestamp) stream.timestamp = Date.now();
 
   const resolved = await resolveEmbedStream(stream);
   resolved.forEach(s => {
+    if (!s.timestamp) s.timestamp = Date.now();
     const exists = state.streams.some(x => x.realUrl === s.realUrl);
     if (!exists) {
       state.streams.push(s);
@@ -612,6 +613,61 @@ async function attachToVideo(msg) {
   tapToPlay.classList.remove('hidden');
   btnPlayPause.textContent = '▶';
 
+  playbackControls.classList.remove('hidden');
+  showControls();
+}
+
+async function attachToEmbed(msg) {
+  if (state.playbackActive && msg._retry) {
+    /* allow retry to complete attach */
+  } else if (state.playbackActive) {
+    return;
+  }
+
+  state.playbackActive = true;
+
+  const sorted = [...state.streams].sort((a, b) =>
+    (b.timestamp || 0) - (a.timestamp || 0)
+  );
+
+  const mp4Stream = sorted.find(s => s.type === 'MP4');
+  const hlsStream = sorted.find(s => s.type === 'HLS');
+  const best = mp4Stream || hlsStream;
+
+  if (!best) {
+    console.warn('[aika] embed tap but no stream cached yet — scanning');
+    browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
+    state.playbackActive = false;
+
+    if (!msg._retry) {
+      setTimeout(async () => {
+        const retry = [...state.streams].sort((a, b) =>
+          (b.timestamp || 0) - (a.timestamp || 0)
+        );
+        const retryStream = retry.find(s => s.type === 'MP4' || s.type === 'HLS');
+        if (retryStream) {
+          await attachToEmbed({ ...msg, _retry: true });
+        } else {
+          console.warn('[aika] no stream found after retry');
+        }
+      }, 2000);
+    }
+    return;
+  }
+
+  positionOverlay(msg.rect);
+  window.__lastVideoRect = msg.rect;
+
+  aikavid.src = best.proxyUrl;
+  aikavid.muted = true;
+  state.muted = true;
+  btnMute.textContent = 'UNMUTE';
+  btnMute.classList.remove('active');
+  aikavid.load();
+
+  playbackView.classList.remove('hidden');
+  tapToPlay.classList.remove('hidden');
+  btnPlayPause.textContent = '▶';
   playbackControls.classList.remove('hidden');
   showControls();
 }
@@ -938,6 +994,7 @@ window.addEventListener('message', (e) => {
   if (d.type === 'navigate' && d.url) navigate(d.url);
   if (d.type === 'aika-stream-detected' && d.stream) onStreamDetected(d.stream);
   if (d.type === 'aika-video-attach') attachToVideo(d);
+  if (d.type === 'aika-embed-attach') attachToEmbed(d);
   if (d.type === 'aika-video-rect') {
     window.__lastVideoRect = d.rect;
     if (state.playbackActive) positionOverlay(d.rect);
