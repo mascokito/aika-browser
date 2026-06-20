@@ -1,7 +1,7 @@
 // sw.js — Aika Browser Service Worker
 // Intercepts all proxy requests and detects video stream URLs
 
-const VERSION = 'aika-v1';
+const VERSION = 'aika-v2';
 
 // URL patterns that indicate a video stream
 const STREAM_PATTERNS = [
@@ -43,10 +43,8 @@ function isIgnored(url) {
 
 function looksLikeStream(url, contentType) {
   if (isIgnored(url)) return false;
-  // Check URL patterns
   const urlMatch = STREAM_PATTERNS.some(p => p.test(url));
   if (urlMatch) return true;
-  // Check content type
   if (contentType) {
     const ct = contentType.toLowerCase();
     return VIDEO_CONTENT_TYPES.some(t => ct.includes(t));
@@ -55,7 +53,6 @@ function looksLikeStream(url, contentType) {
 }
 
 function extractRealUrl(proxyUrl) {
-  // Extract the actual URL from /proxy?url=<encoded>
   try {
     const u = new URL(proxyUrl);
     const encoded = u.searchParams.get('url');
@@ -77,7 +74,6 @@ function getStreamDomain(url) {
   try { return new URL(url).hostname; } catch { return url.slice(0, 40); }
 }
 
-// Notify all clients about a detected stream
 async function notifyClients(streamInfo) {
   const clients = await self.clients.matchAll({ includeUncontrolled: true });
   for (const client of clients) {
@@ -95,35 +91,35 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = req.url;
 
-  // Only watch requests going through our proxy
   if (!url.includes('/proxy?url=')) return;
 
-  // Extract the real target URL
   const realUrl = extractRealUrl(url);
 
-  // Check URL pattern first (fast path, no response needed)
   if (STREAM_PATTERNS.some(p => p.test(realUrl)) && !isIgnored(realUrl)) {
-    // Don't intercept — let it pass through normally
-    // Just notify about the detected stream URL
     const streamInfo = {
       proxyUrl: url,
-      realUrl: realUrl,
+      realUrl,
       type: getStreamType(realUrl),
       domain: getStreamDomain(realUrl),
       timestamp: Date.now(),
     };
     notifyClients(streamInfo);
-    return; // Let fetch proceed normally
+    return;
   }
 
-  // For other requests, check the response content-type
+  const ext = realUrl.split('?')[0].split('.').pop().toLowerCase();
+  const skipExts = new Set(['html', 'htm', 'js', 'mjs', 'css', 'json', 'png',
+    'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'xml',
+    'txt', 'map', 'ts', 'm4s', 'm4a']);
+  if (skipExts.has(ext)) return;
+
   event.respondWith(
     fetch(req).then(response => {
       const ct = response.headers.get('content-type') || '';
       if (looksLikeStream(realUrl, ct)) {
         const streamInfo = {
           proxyUrl: url,
-          realUrl: realUrl,
+          realUrl,
           type: getStreamType(realUrl),
           domain: getStreamDomain(realUrl),
           contentType: ct,

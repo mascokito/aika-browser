@@ -242,6 +242,14 @@ function buildInjectedScript(pageUrl) {
     setTimeout(scanPageForStreams, 1000);
   }
   setTimeout(scanPageForStreams, 3000);
+
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'aika-scan') {
+      scanPageForStreams();
+    }
+  });
 })();
 </script>`;
 }

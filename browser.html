@@ -137,6 +137,7 @@
       width: 100%;
       height: 100%;
       object-fit: contain;
+      pointer-events: none;
     }
 
     #aikaCanvas {
@@ -153,6 +154,59 @@
       background: linear-gradient(transparent, rgba(0,0,0,0.9));
       padding: 24px 16px 16px;
       z-index: 60;
+    }
+    #transportBar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      width: 100%;
+    }
+    #seekBarWrapper {
+      flex: 1;
+    }
+    #seekBar {
+      width: 100%;
+      accent-color: var(--viridian);
+      cursor: pointer;
+    }
+    #volumeSlider {
+      width: 70px;
+      accent-color: var(--viridian);
+    }
+    #timeDisplay {
+      font-size: 11px;
+      color: #aaa;
+      white-space: nowrap;
+      min-width: 90px;
+      font-family: var(--font);
+    }
+    #btnPlayPause {
+      font-size: 16px;
+      min-width: 32px;
+    }
+    #tapToPlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+    }
+    #tapToPlay.hidden { display: none !important; }
+    #tapToPlayBtn {
+      font-size: 80px;
+      color: rgba(255,255,255,0.85);
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+    #tapToPlayLabel {
+      font-family: var(--font);
+      font-size: 13px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 6px;
     }
     .ctrl-group {
       display: flex;
@@ -227,6 +281,7 @@
     <button id="btnBack" type="button" aria-label="Back">←</button>
     <button id="btnForward" type="button" aria-label="Forward">→</button>
     <button id="btnRefresh" type="button" aria-label="Refresh">↺</button>
+    <button id="btnScan" type="button" title="Scan for video streams">⊙</button>
     <input id="urlInput" type="url" placeholder="Enter URL..." autocomplete="off" spellcheck="false">
     <button id="btnGo" type="button">GO</button>
   </div>
@@ -253,12 +308,24 @@
   </div>
 
   <div id="playbackView" class="hidden">
+    <div id="tapToPlay" class="hidden">
+      <div id="tapToPlayBtn">▶</div>
+      <div id="tapToPlayLabel">TAP TO PLAY</div>
+    </div>
     <div id="videoWrapper">
       <video id="aikavid" playsinline muted crossorigin="anonymous"></video>
       <canvas id="aikaCanvas"></canvas>
     </div>
 
     <div id="playbackControls">
+      <div id="transportBar">
+        <button id="btnPlayPause" type="button">⏸</button>
+        <span id="timeDisplay">0:00 / 0:00</span>
+        <div id="seekBarWrapper">
+          <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1">
+        </div>
+        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" title="Volume">
+      </div>
       <div id="controlsRow1">
         <div class="ctrl-group">
           <span class="ctrl-label">EFFECT</span>
@@ -308,8 +375,12 @@ const state = {
   pickerOpen: false,
   playbackActive: false,
   rafId: null,
+  lastFrame: 0,
+  lastVw: 0,
+  lastVh: 0,
   sampleCanvas: null,
   sampleCtx: null,
+  sampleDims: null,
 };
 
 async function registerSW() {
@@ -418,8 +489,9 @@ function loadStream(stream) {
   btnMute.textContent = 'UNMUTE';
   btnMute.classList.remove('active');
   aikavid.load();
-  aikavid.play().catch(() => {});
   enterPlaybackMode();
+  tapToPlay.classList.remove('hidden');
+  btnPlayPause.textContent = '▶';
 }
 
 function sizeVideoWrapper() {
@@ -464,10 +536,15 @@ function killStream() {
   aikavid.load();
   cancelAnimationFrame(state.rafId);
   state.rafId = null;
+  state.lastFrame = 0;
+  state.lastVw = 0;
+  state.lastVh = 0;
+  state.sampleDims = null;
 
   const ctx = aikaCanvas.getContext('2d');
   ctx.clearRect(0, 0, aikaCanvas.width, aikaCanvas.height);
   aikaCanvas.style.display = 'block';
+  tapToPlay.classList.add('hidden');
 
   playbackView.classList.add('hidden');
   browseView.classList.remove('hidden');
@@ -476,6 +553,13 @@ function killStream() {
   state.streams = [];
   state.pickerOpen = false;
   updateStreamBadge();
+}
+
+function formatTime(s) {
+  if (!isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ':' + String(sec).padStart(2, '0');
 }
 
 const DENSITY = ' .:-=+*#%@█▓▒░';
@@ -508,9 +592,20 @@ function ensureSampleCanvas(vw, vh) {
   return { w: W, h: H, ctx: state.sampleCtx };
 }
 
-function renderFrame() {
+function renderFrame(ts) {
+  if (aikavid.paused || aikavid.ended || !aikavid.videoWidth) {
+    state.rafId = null;
+    return;
+  }
+
+  const now = ts || performance.now();
+  if (state.lastFrame && now - state.lastFrame < 33) {
+    state.rafId = requestAnimationFrame(renderFrame);
+    return;
+  }
+  state.lastFrame = now;
+
   state.rafId = requestAnimationFrame(renderFrame);
-  if (aikavid.paused || aikavid.ended || !aikavid.videoWidth) return;
 
   if (state.effect === 'off') {
     aikaCanvas.style.display = 'none';
@@ -520,11 +615,18 @@ function renderFrame() {
 
   const vw = aikavid.videoWidth;
   const vh = aikavid.videoHeight;
-  aikaCanvas.width = vw;
-  aikaCanvas.height = vh;
+  if (aikaCanvas.width !== vw || aikaCanvas.height !== vh) {
+    aikaCanvas.width = vw;
+    aikaCanvas.height = vh;
+  }
 
   const ctx = aikaCanvas.getContext('2d');
-  const s = ensureSampleCanvas(vw, vh);
+  if (state.lastVw !== vw || state.lastVh !== vh) {
+    state.lastVw = vw;
+    state.lastVh = vh;
+    state.sampleDims = ensureSampleCanvas(vw, vh);
+  }
+  const s = state.sampleDims;
 
   try {
     s.ctx.drawImage(aikavid, 0, 0, s.w, s.h);
@@ -594,6 +696,7 @@ function renderFrame() {
 
 function startRenderLoop() {
   cancelAnimationFrame(state.rafId);
+  state.lastFrame = 0;
   state.rafId = requestAnimationFrame(renderFrame);
 }
 
@@ -613,6 +716,7 @@ const btnGo = document.getElementById('btnGo');
 const btnBack = document.getElementById('btnBack');
 const btnForward = document.getElementById('btnForward');
 const btnRefresh = document.getElementById('btnRefresh');
+const btnScan = document.getElementById('btnScan');
 const browseView = document.getElementById('browseView');
 const browserFrame = document.getElementById('browserFrame');
 const streamBadge = document.getElementById('streamBadge');
@@ -628,6 +732,11 @@ const aikaCanvas = document.getElementById('aikaCanvas');
 const btnKill = document.getElementById('btnKill');
 const btnMute = document.getElementById('btnMute');
 const btnFullscreen = document.getElementById('btnFullscreen');
+const btnPlayPause = document.getElementById('btnPlayPause');
+const timeDisplay = document.getElementById('timeDisplay');
+const seekBar = document.getElementById('seekBar');
+const volumeSlider = document.getElementById('volumeSlider');
+const tapToPlay = document.getElementById('tapToPlay');
 const sizeSlider = document.getElementById('sizeSlider');
 const sizeVal = document.getElementById('sizeVal');
 const brightSlider = document.getElementById('brightSlider');
@@ -638,6 +747,9 @@ urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(urlI
 btnBack.addEventListener('click', () => { try { browserFrame.contentWindow?.history.back(); } catch (_) {} });
 btnForward.addEventListener('click', () => { try { browserFrame.contentWindow?.history.forward(); } catch (_) {} });
 btnRefresh.addEventListener('click', () => { try { browserFrame.contentWindow?.location.reload(); } catch (_) {} });
+btnScan.addEventListener('click', () => {
+  browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
+});
 
 streamBadge.addEventListener('click', openStreamPicker);
 btnDismissPicker.addEventListener('click', closeStreamPicker);
@@ -645,6 +757,60 @@ btnKill.addEventListener('click', killStream);
 
 aikavid.addEventListener('loadedmetadata', sizeVideoWrapper);
 window.addEventListener('resize', sizeVideoWrapper);
+
+btnPlayPause.addEventListener('click', () => {
+  if (aikavid.paused) {
+    aikavid.play().catch(e => console.warn('[aika] play:', e.message));
+  } else {
+    aikavid.pause();
+  }
+});
+
+aikavid.addEventListener('play', () => {
+  btnPlayPause.textContent = '⏸';
+  if (!state.rafId) state.rafId = requestAnimationFrame(renderFrame);
+});
+
+aikavid.addEventListener('pause', () => {
+  btnPlayPause.textContent = '▶';
+});
+
+aikavid.addEventListener('ended', () => {
+  btnPlayPause.textContent = '▶';
+});
+
+aikavid.addEventListener('playing', () => {
+  tapToPlay.classList.add('hidden');
+});
+
+aikavid.addEventListener('timeupdate', () => {
+  if (!aikavid.duration) return;
+  const cur = aikavid.currentTime;
+  const dur = aikavid.duration;
+  seekBar.value = (cur / dur) * 100;
+  timeDisplay.textContent = formatTime(cur) + ' / ' + formatTime(dur);
+});
+
+let isSeeking = false;
+seekBar.addEventListener('mousedown', () => { isSeeking = true; });
+seekBar.addEventListener('touchstart', () => { isSeeking = true; });
+seekBar.addEventListener('input', () => {
+  if (!aikavid.duration) return;
+  aikavid.currentTime = (seekBar.value / 100) * aikavid.duration;
+});
+seekBar.addEventListener('mouseup', () => { isSeeking = false; });
+seekBar.addEventListener('touchend', () => { isSeeking = false; });
+
+volumeSlider.addEventListener('input', () => {
+  aikavid.volume = parseFloat(volumeSlider.value);
+  aikavid.muted = aikavid.volume === 0;
+  btnMute.textContent = aikavid.muted ? 'UNMUTE' : 'MUTE';
+});
+
+tapToPlay.addEventListener('click', () => {
+  tapToPlay.classList.add('hidden');
+  aikavid.play().catch(e => console.warn('[aika] play failed:', e.message));
+});
 
 btnFullscreen.addEventListener('click', () => {
   if (document.fullscreenElement) {
