@@ -1,0 +1,456 @@
+<!DOCTYPE html><html lang="en-US"><head>
+<script>
+(function() {
+  const PROXY = '/proxy?url=';
+  window.__PROXY_ORIGIN__ = 'https://spankbang.com';
+  document.cookie = 'aika_proxy_origin=' + encodeURIComponent('https://spankbang.com') + '; path=/; SameSite=Lax';
+  function proxyPath(url) {
+    if (typeof url !== 'string') return url;
+    if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('#')) return url;
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return PROXY + encodeURIComponent(url);
+    }
+    if (url.startsWith('//')) {
+      return PROXY + encodeURIComponent('https:' + url);
+    }
+    if (url.startsWith('/') && !url.startsWith('/proxy')) {
+      return PROXY + encodeURIComponent(window.__PROXY_ORIGIN__ + url);
+    }
+    return url;
+  }
+  const origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    if (typeof url === 'string') url = proxyPath(url);
+    return origFetch(url, opts);
+  };
+  const OrigXHR = window.XMLHttpRequest;
+  window.XMLHttpRequest = function() {
+    const xhr = new OrigXHR();
+    const origOpen = xhr.open;
+    xhr.open = function(method, url) {
+      if (typeof url === 'string') url = proxyPath(url);
+      return origOpen.apply(this, [method, url, ...Array.prototype.slice.call(arguments, 2)]);
+    };
+    return xhr;
+  };
+  // Patch history.pushState / replaceState so SPA navigation
+  // triggers a real proxy load instead of changing the iframe URL
+  (function patchHistory() {
+    var _pushState = history.pushState.bind(history);
+    var _replaceState = history.replaceState.bind(history);
+
+    function interceptState(original, state, title, url) {
+      if (!url) return original(state, title, url);
+      try {
+        var parsed = new URL(url, window.location.href);
+        if ((parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+            && !parsed.pathname.startsWith('/proxy')
+            && !parsed.pathname.startsWith('/browser.html')) {
+          var realUrl = window.__PROXY_ORIGIN__ + parsed.pathname + parsed.search + parsed.hash;
+          window.parent.postMessage({ type: 'navigate', url: realUrl }, '*');
+          return;
+        }
+      } catch (_) {}
+      return original(state, title, url);
+    }
+
+    history.pushState = function(state, title, url) {
+      return interceptState(_pushState, state, title, url);
+    };
+    history.replaceState = function(state, title, url) {
+      return interceptState(_replaceState, state, title, url);
+    };
+  })();
+  // Patch img src setter so JS-set image URLs go through the proxy
+  (function patchImageSrc() {
+    var _nativeSet = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    if (!_nativeSet || !_nativeSet.set) return;
+
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      set: function(val) {
+        _nativeSet.set.call(this, typeof val === 'string' ? proxyPath(val) : val);
+      },
+      get: function() {
+        return _nativeSet.get.call(this);
+      },
+      configurable: true,
+    });
+
+    var _setAttribute = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {
+      if (typeof value === 'string') {
+        var lname = name.toLowerCase();
+        if (lname === 'src' || lname === 'data-src' || lname === 'data-original'
+            || lname === 'data-lazy-src' || lname === 'data-srcset') {
+          value = proxyPath(value);
+        }
+      }
+      return _setAttribute.call(this, name, value);
+    };
+  })();
+  // MutationObserver: proxy src on any newly inserted img/source/video elements
+  (function observeNewImages() {
+    function proxyElement(el) {
+      var src = el.getAttribute('src') || el.getAttribute('data-src');
+      if (src && !src.startsWith('/proxy') && !src.startsWith('data:') && !src.startsWith('blob:')) {
+        var proxied = proxyPath(src);
+        if (proxied !== src) {
+          if (el.hasAttribute('src')) el.setAttribute('src', proxied);
+          if (el.hasAttribute('data-src')) el.setAttribute('data-src', proxied);
+        }
+      }
+    }
+    var obs = new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        m.addedNodes.forEach(function(node) {
+          if (node.nodeType !== 1) return;
+          if (node.tagName === 'IMG' || node.tagName === 'SOURCE' || node.tagName === 'VIDEO') {
+            proxyElement(node);
+          }
+          node.querySelectorAll && node.querySelectorAll('img,source,video').forEach(proxyElement);
+        });
+      });
+    });
+    if (document.body) {
+      obs.observe(document.body, { childList: true, subtree: true });
+    } else {
+      document.addEventListener('DOMContentLoaded', function() {
+        obs.observe(document.body, { childList: true, subtree: true });
+      });
+    }
+  })();
+
+  function getVideoInfo(v) {
+    var rect = v.getBoundingClientRect();
+    return {
+      src: v.currentSrc || v.src || '',
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      videoWidth: v.videoWidth,
+      videoHeight: v.videoHeight,
+      currentTime: v.currentTime,
+      paused: v.paused,
+      duration: v.duration || 0,
+      area: rect.width * rect.height,
+    };
+  }
+
+  function isMainPlayer(v) {
+    var rect = v.getBoundingClientRect();
+    if (rect.width < 320 || rect.height < 180) return false;
+    if (v.loop) return false;
+    var allVideos = Array.from(document.querySelectorAll('video'));
+    var myArea = rect.width * rect.height;
+    for (var i = 0; i < allVideos.length; i++) {
+      if (allVideos[i] === v) continue;
+      var r = allVideos[i].getBoundingClientRect();
+      if (r.width * r.height > myArea) return false;
+    }
+    return true;
+  }
+
+  function isLongEnough(v) {
+    if (!v.duration || isNaN(v.duration) || v.duration === Infinity) return true;
+    return v.duration >= 60;
+  }
+
+  function attachVideo(v, trigger) {
+    if (window.__aikaActiveVideo) return;
+    if (v.__aikaAttached) return;
+    var info = getVideoInfo(v);
+    if (!info.rect.width || !info.rect.height) return;
+
+    v.style.opacity = '0';
+    v.style.pointerEvents = 'none';
+    v.__aikaAttached = true;
+    window.__aikaActiveVideo = v;
+
+    window.parent.postMessage({
+      type: 'aika-video-attach',
+      src: info.src,
+      rect: info.rect,
+      videoWidth: info.videoWidth,
+      videoHeight: info.videoHeight,
+      currentTime: info.currentTime,
+      duration: info.duration,
+      trigger: trigger,
+    }, '*');
+  }
+
+  var rectSyncId = null;
+  function startRectSync() {
+    stopRectSync();
+    function syncRect() {
+      var v = window.__aikaActiveVideo;
+      if (!v) { stopRectSync(); return; }
+      var rect = v.getBoundingClientRect();
+      window.parent.postMessage({
+        type: 'aika-video-rect',
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        }
+      }, '*');
+      rectSyncId = requestAnimationFrame(syncRect);
+    }
+    rectSyncId = requestAnimationFrame(syncRect);
+  }
+  function stopRectSync() {
+    if (rectSyncId) { cancelAnimationFrame(rectSyncId); rectSyncId = null; }
+  }
+
+  document.addEventListener('click', function(e) {
+    var v = e.target.closest('video');
+    if (!v) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (v.loop && v.duration > 0 && v.duration < 10) return;
+
+    attachVideo(v, 'tap');
+    startRectSync();
+  }, true);
+
+  document.addEventListener('play', function(e) {
+    if (e.target.tagName !== 'VIDEO') return;
+    if (window.__aikaActiveVideo) return;
+    var v = e.target;
+
+    function tryAttach() {
+      if (window.__aikaActiveVideo) return;
+      if (v.paused || v.__aikaAttached) return;
+      if (!isMainPlayer(v)) return;
+      if (!isLongEnough(v)) return;
+      attachVideo(v, 'autoplay');
+      startRectSync();
+    }
+
+    if (v.readyState >= 1) {
+      setTimeout(tryAttach, 300);
+    } else {
+      v.addEventListener('loadedmetadata', function onMeta() {
+        v.removeEventListener('loadedmetadata', onMeta);
+        setTimeout(tryAttach, 300);
+      });
+    }
+  }, true);
+
+  var PLAYER_IFRAME_PATTERNS = [
+    'zilla-networks.com',
+    'mp4upload.com',
+    'streamtape.com',
+    'doodstream.com',
+    'upstream.to',
+    'mixdrop.co',
+    'filemoon.sx',
+  ];
+
+  function findPlayerIframes() {
+    var iframes = Array.from(document.querySelectorAll('iframe'));
+    return iframes.filter(function(f) {
+      var src = f.src || f.getAttribute('src') || '';
+      return PLAYER_IFRAME_PATTERNS.some(function(p) {
+        return src.includes(p);
+      });
+    });
+  }
+
+  var aikaShims = [];
+
+  function installEmbedShims() {
+    aikaShims.forEach(function(s) { s.parentNode && s.parentNode.removeChild(s); });
+    aikaShims = [];
+
+    findPlayerIframes().forEach(function(iframe) {
+      var rect = iframe.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+
+      var shim = document.createElement('div');
+      shim.setAttribute('data-aika-shim', 'true');
+      shim.style.cssText = [
+        'position:fixed',
+        'left:' + rect.left + 'px',
+        'top:' + rect.top + 'px',
+        'width:' + rect.width + 'px',
+        'height:' + rect.height + 'px',
+        'z-index:2147483646',
+        'cursor:pointer',
+        'background:transparent',
+      ].join(';');
+
+      shim.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        shim.parentNode && shim.parentNode.removeChild(shim);
+        aikaShims = aikaShims.filter(function(s) { return s !== shim; });
+
+        var iframeRect = iframe.getBoundingClientRect();
+        var embedSrc = iframe.src || '';
+
+        window.parent.postMessage({
+          type: 'aika-embed-attach',
+          rect: {
+            left: iframeRect.left,
+            top: iframeRect.top,
+            width: iframeRect.width,
+            height: iframeRect.height,
+          },
+          embedSrc: embedSrc,
+          trigger: 'tap',
+        }, '*');
+      });
+
+      document.body.appendChild(shim);
+      aikaShims.push(shim);
+    });
+  }
+
+  function updateShimPositions() {
+    var iframes = findPlayerIframes();
+    aikaShims.forEach(function(shim, i) {
+      var iframe = iframes[i];
+      if (!iframe) return;
+      var rect = iframe.getBoundingClientRect();
+      shim.style.left = rect.left + 'px';
+      shim.style.top = rect.top + 'px';
+      shim.style.width = rect.width + 'px';
+      shim.style.height = rect.height + 'px';
+    });
+  }
+
+  function setupEmbedDetection() {
+    installEmbedShims();
+    if (!window.__aikaEmbedObs) {
+      window.__aikaEmbedObs = new MutationObserver(function() {
+        installEmbedShims();
+      });
+      if (document.body) {
+        window.__aikaEmbedObs.observe(document.body, { childList: true, subtree: true });
+      }
+    }
+    if (!window.__aikaShimScrollBound) {
+      window.__aikaShimScrollBound = true;
+      window.addEventListener('scroll', updateShimPositions, { passive: true });
+      window.addEventListener('resize', updateShimPositions, { passive: true });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupEmbedDetection);
+  } else {
+    setTimeout(setupEmbedDetection, 500);
+  }
+  setTimeout(setupEmbedDetection, 2000);
+
+  document.addEventListener('click', function(e) {
+    const a = e.target.closest('a');
+    if (!a || !a.href) return;
+    const raw = (a.getAttribute('href') || '').trim();
+    if (!raw || raw.startsWith('#') || /^javascript:/i.test(raw) || /^mailto:/i.test(raw)) return;
+    let navUrl = a.href;
+    try {
+      const u = new URL(navUrl);
+      if (u.searchParams.has('url') && (u.pathname === '/proxy' || u.pathname.endsWith('/proxy'))) {
+        navUrl = decodeURIComponent(u.searchParams.get('url'));
+      }
+    } catch (_) {}
+    if (navUrl.startsWith('http')) {
+      e.preventDefault();
+      try {
+        const parsed = new URL(navUrl);
+        if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+          navUrl = window.__PROXY_ORIGIN__ + parsed.pathname + parsed.search + parsed.hash;
+        }
+      } catch (_) {}
+      window.parent.postMessage({ type: 'navigate', url: navUrl }, '*');
+    }
+  }, true);
+
+  // Stream URL extraction from page source
+  function scanPageForStreams() {
+    var html = document.documentElement.innerHTML;
+    var streams = [];
+    var seen = {};
+
+    function addStream(url, type) {
+      try {
+        url = url.replace(/\u002F/gi, '/').replace(/\//g, '/');
+        new URL(url);
+        if (type !== 'EMBED') {
+          var ext = type === 'HLS' ? 'm3u8' : type === 'DASH' ? 'mpd' : 'mp4';
+          if (!/\.[a-z0-9]+(?:\?|$)/i.test(new URL(url).pathname + new URL(url).search)) return;
+          if (!new RegExp('\\.' + ext + '(?:\\?|$)', 'i').test(new URL(url).pathname + new URL(url).search)) return;
+        }
+        if (!seen[url]) {
+          seen[url] = true;
+          streams.push({ url: url, type: type });
+        }
+      } catch (e) {}
+    }
+
+    var m3u8 = html.match(/https?:\/\/[^\s"'<>]+\.m3u8(?:\?[^\s"'<>]*)?/g) || [];
+    m3u8.forEach(function(u) { addStream(u, 'HLS'); });
+
+    var mp4 = html.match(/https?:\/\/[^\s"'<>]+\.mp4(?:\?[^\s"'<>]*)?/g) || [];
+    mp4.forEach(function(u) { addStream(u, 'MP4'); });
+
+    var mpd = html.match(/https?:\/\/[^\s"'<>]+\.mpd(?:\?[^\s"'<>]*)?/g) || [];
+    mpd.forEach(function(u) { addStream(u, 'DASH'); });
+
+    var embedPatterns = [
+      /mp4upload\.com\/embed-[a-z0-9]+\.html/i,
+      /mp4upload\.com\/[a-z0-9]+$/i,
+      /streamtape\.com\/e\/[a-z0-9]+/i,
+      /doodstream\.com\/e\/[a-z0-9]+/i,
+      /upstream\.to\/embed-[a-z0-9]+/i,
+    ];
+    var urlMatches = html.match(/https?:\/\/[^\s"'<>]+/g) || [];
+    urlMatches.forEach(function(u) {
+      if (embedPatterns.some(function(p) { return p.test(u); })) {
+        addStream(u, 'EMBED');
+      }
+    });
+
+    streams.forEach(function(s) {
+      window.parent.postMessage({
+        type: 'aika-stream-detected',
+        stream: {
+          proxyUrl: '/proxy?url=' + encodeURIComponent(s.url),
+          realUrl: s.url,
+          type: s.type,
+          domain: (function() { try { return new URL(s.url).hostname; } catch(e) { return ''; } })(),
+          source: 'dom-scan',
+        }
+      }, '*');
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      setTimeout(scanPageForStreams, 1000);
+    });
+  } else {
+    setTimeout(scanPageForStreams, 1000);
+  }
+  setTimeout(scanPageForStreams, 3000);
+
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'aika-scan') {
+      scanPageForStreams();
+    }
+    if (d.type === 'aika-video-detach') {
+      stopRectSync();
+      if (window.__aikaActiveVideo) {
+        window.__aikaActiveVideo.style.opacity = '';
+        window.__aikaActiveVideo.style.pointerEvents = '';
+        window.__aikaActiveVideo.__aikaAttached = false;
+        window.__aikaActiveVideo = null;
+      }
+      setTimeout(setupEmbedDetection, 100);
+    }
+  });
+})();
+</script><title>Just a moment...</title><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=Edge"><meta name="robots" content="noindex,nofollow"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="default-src &#39;none&#39;; script-src &#39;nonce-EXDKvbos6VC66CFOTvG8z1&#39; &#39;unsafe-eval&#39; https://challenges.cloudflare.com; script-src-attr &#39;none&#39;; style-src &#39;unsafe-inline&#39;; img-src &#39;self&#39; https://challenges.cloudflare.com; connect-src &#39;self&#39; https://challenges.cloudflare.com; frame-src &#39;self&#39; https://challenges.cloudflare.com blob:; child-src &#39;self&#39; https://challenges.cloudflare.com blob:; worker-src blob:; form-action http: https:; base-uri &#39;self&#39;"><style>*{box-sizing:border-box;margin:0;padding:0}html{line-height:1.15;-webkit-text-size-adjust:100%;color:#313131;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"}body{display:flex;flex-direction:column;height:100vh;min-height:100vh}.main-content{margin:8rem auto;padding-left:1.5rem;max-width:60rem}@media (width <= 720px){.main-content{margin-top:4rem}}#challenge-error-text{background-image:url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgZmlsbD0ibm9uZSI+PHBhdGggZmlsbD0iI0IyMEYwMyIgZD0iTTE2IDNhMTMgMTMgMCAxIDAgMTMgMTNBMTMuMDE1IDEzLjAxNSAwIDAgMCAxNiAzbTAgMjRhMTEgMTEgMCAxIDEgMTEtMTEgMTEuMDEgMTEuMDEgMCAwIDEtMTEgMTEiLz48cGF0aCBmaWxsPSIjQjIwRjAzIiBkPSJNMTcuMDM4IDE4LjYxNUgxNC44N0wxNC41NjMgOS41aDIuNzgzem0tMS4wODQgMS40MjdxLjY2IDAgMS4wNTcuMzg4LjQwNy4zODkuNDA3Ljk5NCAwIC41OTYtLjQwNy45ODQtLjM5Ny4zOS0xLjA1Ny4zODktLjY1IDAtMS4wNTYtLjM4OS0uMzk4LS4zODktLjM5OC0uOTg0IDAtLjU5Ny4zOTgtLjk4NS40MDYtLjM5NyAxLjA1Ni0uMzk3Ii8+PC9zdmc+");background-repeat:no-repeat;background-size:contain;padding-left:34px}</style><meta http-equiv="refresh" content="360"></head><body><div class="main-wrapper" role="main"><div class="main-content"><noscript><div class="h2"><span id="challenge-error-text">Enable JavaScript and cookies to continue</span></div></noscript></div></div><script nonce="EXDKvbos6VC66CFOTvG8z1">(function(){window._cf_chl_opt = {cFPWv: 'g',cH: 'Leow3rZ67ob3pURvv6oYZck3k9eMtpModbDwxj.xFlM-1782015906-1.2.1.1-.EcmjF_PaWHyC7uqT4FvJX6YeuTEJQIuT_mVdMJ0pqHewNuJ74pUCk7wodo.N1fq',cITimeS: '1782015906',cN: 'EXDKvbos6VC66CFOTvG8z1',cRay: 'a0f03f59dc3188f1',cTplB: '0',cTplC:0,cTplO:0,cTplV:5,cType: 'interactive',cUPMDTk:"/abc123/video/sample?__cf_chl_tk=E_HgNppyYnmMEZ83.n.UAXy_6cD4YZ0O9iAvIW.j3Ho-1782015906-1.0.1.1-It0vqOZ0_oUOAcO2yVkP3kvTS8XgFayJzYwQFFbwxdM",cvId: '3',cZone: 'spankbang.com',fa:"/abc123/video/sample?__cf_chl_f_tk=E_HgNppyYnmMEZ83.n.UAXy_6cD4YZ0O9iAvIW.j3Ho-1782015906-1.0.1.1-It0vqOZ0_oUOAcO2yVkP3kvTS8XgFayJzYwQFFbwxdM",md: 'O9xu1GRgxPT9ucLjnGoPYZwxohRdIbajQ66M1TgwMeA-1782015906-1.2.1.1-8OJzzawJv.s0S4ASyGL7mm8RlzWgXxCODlASzsOvviqux7.bxLaHOYAAtNIPoNyoYZyU_CjtamwSpbFqvlxolcCY2o6YcT9yJ_7awMun9q1EdtmOTHBCVQQMmwtcfE84MU5LrghyvaXRD8MhI7weD_RmKeSrvemil1DpWEycqX4RScsJ.NiTTcN1EyGrDDPGXcf1vR.wm86GS5b.B5i2EpK7cODiFjIPh.HkVrXUNocIjwReUq.LrTkLeM7m.rWOgzR8PyDBd0XJFBYOTcsMNU00Jk90LnxURMrNhH5jO1SH1H8o6XsUFLiW0bONMHvTki2DPe3F7vbYRiAnrj2qAO2vkXHSAqpvgIaXS_E4UhnTa6si9aZ2C8tTb.thIPBiYNsnz7TRXnY9EMecEQp4Vtm5T3mE.Qu0FctcZf5QAUct9Ot8sGSwiS78mmN1XtS5FNNeummAK5J2o9sKU4N.ozILJM4bBrkVf1E1tG03dZHazRzs6_ejIEMkzLX8GeyihBBb2M2PRfStUC80o4K8fIQToaVH_Zx52lIzwkKDLrq.ITK6zHsvK__8S0hskDytkeD4jT8NNAC0soxWjlKtFC2kKMbZlHrV0.MstGUXyiVMDr5LFPvroMRw6aSAYq28MB7N4PiigMm0tK7LjCsY4qG4DasLa_voOy2CFKv5c3HyuDQjim_kjf6VdHu2D3SGGBBGHnvL_4ydY.CHjw6Y0xJgGruUBQRnAbq9kKsQv2w9WZd5KzZYLbu4eiJB_Cj2hsbl4ndvpX7CEqlTmsCVaBLEN_Inba.mt9JZh.ITHWQzPCaJiKHKn8XIfZfAlaCzpYYFEvKgHbeHmSjS1MIgHyTNHvb.3_O6d9sqp2LBB7E4cj58OxS4rOst2uxTAWZwYd6KeNQFh85x9tvTVg3jXLo_1cAGk1ZzEDBS7irQgSRBOB6XwfguW5H60aqJ97.q2KCRRAIrTvkchWy5Qu1_gOUifnc65T2bjavtl0D8fc526rTfE7d4A4gTtMsst8SkImI7bOutLGMSAxljhiWOU.Iwx9U.jWgCzc9T5OpfiAw9ny4whBnxWlWm9DvhUVGLc9xYUc9z7IADy3o3PiTcawQWVODMeDXMF6lSx.qHigoX54RMMJO17M.Akl8YrXx6hAqEeQW2ALHzy8gTssKjXLIE3Ml_LEW.LnnEGyzW9.FF7On9WHzE4daALLJRSJB6',mdrd: 'YK4Mz9LzfQn_.GaO0z5KqRZhlQztIy85bhb0Po3iSpU-1782015906-1.2.1.1-52JhePcbGImaBFMvQdNAJDbs.90_uZ6Q41qUfd8I8r33Ape0PT7rPAhNyb_3PhYWtYOBC1q5cYQfwSg7FI4LSg_qkTxPmFvnMY1k57NgCXNzU4gZacWYrwnz1YfOJCnfFriZAh0FwVrziejHmFS8P_z6AhFGl858SpVZatwrD3VXtIzwa24mY.YM2b_hBHkRw7WQsGL_5ki6VSyxN6nTnhrJyvH3PYp5iDACAj0DxBNg0suMQiL6LthTawNnGN9SwV4DvRNCC6v5bBjBnwFo.B2ol_46IP9hxVfFZGcPbc8Rt7ASNWg0.UOC9Tl3wHXsQF8Xc0FyxYL4w3S42pKXyW1_kpYg5y.f7zM51uwS3_mgMSMxIflX34.oLMV1IMxbA.TwIZlMm8L88a3FBYDgYZbu4YCrDZbrtQUd.WETSXSMSrbPvxQvTBtCIqDy_kiOldLA_TH3onn_Yn3Iwtl8yQGa23OBPn2D87ry4MmU._VFu_jsNIjG7diuLN4zu0XGnZPVjSyWL5T5A9TEbslvnw',};var a = document.createElement('script');a.nonce = 'EXDKvbos6VC66CFOTvG8z1';a.src='/proxy?url=https%3A%2F%2Fspankbang.com%2Fcdn-cgi%2Fchallenge-platform%2Fh%2Fg%2Forchestrate%2Fchl_page%2Fv1%3Fray%3Da0f03f59dc3188f1';window._cf_chl_opt.cOgUHash = location.hash === '' && location.href.indexOf('#') !== -1 ? '#' : location.hash;window._cf_chl_opt.cOgUQuery = location.search === '' && location.href.slice(0, location.href.length - window._cf_chl_opt.cOgUHash.length).indexOf('?') !== -1 ? '?' : location.search;if (window.history && window.history.replaceState) {var ogU = location.pathname + window._cf_chl_opt.cOgUQuery + window._cf_chl_opt.cOgUHash;history.replaceState(null, null,"/abc123/video/sample?__cf_chl_rt_tk=E_HgNppyYnmMEZ83.n.UAXy_6cD4YZ0O9iAvIW.j3Ho-1782015906-1.0.1.1-It0vqOZ0_oUOAcO2yVkP3kvTS8XgFayJzYwQFFbwxdM"+ window._cf_chl_opt.cOgUHash);a.onload = function() {history.replaceState(null, null, ogU);}}document.getElementsByTagName('head')[0].appendChild(a);}());</script></body></html>
