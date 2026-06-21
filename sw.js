@@ -1,7 +1,7 @@
 // sw.js — Aika Browser Service Worker
 // Intercepts all proxy requests and detects video stream URLs
 
-const CACHE_NAME = 'aika-v3';
+const CACHE_NAME = 'aika-v4';
 const APP_SHELL = [
   '/browser.html',
   '/manifest.json',
@@ -9,7 +9,7 @@ const APP_SHELL = [
   '/icons/icon-512.png',
 ];
 
-const VERSION = 'aika-v3';
+const VERSION = 'aika-v4';
 
 // URL patterns that indicate a video stream
 const STREAM_PATTERNS = [
