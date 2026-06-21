@@ -4,6 +4,9 @@ import puppeteer from 'puppeteer-core';
 
 let renderQueue = Promise.resolve();
 
+// In-flight render promises keyed by URL
+const inFlightRenders = new Map();
+
 const LAUNCH_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -16,7 +19,7 @@ const LAUNCH_ARGS = [
 
 const NAV_TIMEOUT_MS = 8_000;
 const VIDEO_WAIT_MS = 5_000;
-const PLAYER_DOMAINS = ['player.zilla-networks.com', 'mp4upload.com', 'streamtape.com'];
+const PLAYER_DOMAINS = ['mp4upload.com', 'streamtape.com'];
 
 function getNavTimeout(url) {
   try {
@@ -267,10 +270,21 @@ export async function closePuppeteerBrowser() {
  * @throws on navigation/render failure (caller should fall back to fetch)
  */
 export async function renderHtmlWithPuppeteer(targetUrl, req, signal) {
+  if (inFlightRenders.has(targetUrl)) {
+    console.log('[puppeteer] Coalescing duplicate render for:', targetUrl.slice(0, 80));
+    return inFlightRenders.get(targetUrl);
+  }
+
   const run = () => renderHtmlWithPuppeteerInner(targetUrl, req, signal);
   const queued = renderQueue.then(run, run);
   renderQueue = queued.catch(() => {});
-  return queued;
+
+  const tracked = queued.finally(() => {
+    inFlightRenders.delete(targetUrl);
+  });
+  inFlightRenders.set(targetUrl, tracked);
+
+  return tracked;
 }
 
 async function renderHtmlWithPuppeteerInner(targetUrl, req, signal) {

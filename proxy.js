@@ -77,7 +77,8 @@ function buildInjectedScript(pageUrl) {
         var parsed = new URL(url, window.location.href);
         if ((parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
             && !parsed.pathname.startsWith('/proxy')
-            && !parsed.pathname.startsWith('/browser.html')) {
+            && !parsed.pathname.startsWith('/browser.html')
+            && !parsed.pathname.startsWith('/browser.htm')) {
           var realUrl = window.__PROXY_ORIGIN__ + parsed.pathname + parsed.search + parsed.hash;
           window.parent.postMessage({ type: 'navigate', url: realUrl }, '*');
           return;
@@ -1776,6 +1777,28 @@ function requiresPuppeteerForVideo(url) {
   }
 }
 
+// Domains served as SPA shells but handled by client-side embed shims.
+// Puppeteer cannot render these usefully — skip and return fetch shell immediately.
+const SKIP_PUPPETEER_DOMAINS = [
+  'player.zilla-networks.com',
+  'mp4upload.com',
+  'streamtape.com',
+  'doodstream.com',
+  'upstream.to',
+  'mixdrop.co',
+  'filemoon.sx',
+  'youjizz.com',
+];
+
+function shouldSkipPuppeteer(url) {
+  try {
+    const host = new URL(url).hostname;
+    return SKIP_PUPPETEER_DOMAINS.some((d) => host.includes(d));
+  } catch {
+    return false;
+  }
+}
+
 async function proxyHtmlDocument(targetUrl, req, res, signal, clearFetchTimeout) {
   if (!looksLikeHtmlPage(targetUrl) || getForcedContentType(targetUrl)) {
     const upstream = await fetchWithRedirects(targetUrl, signal, req);
@@ -1808,7 +1831,7 @@ async function proxyHtmlDocument(targetUrl, req, res, signal, clearFetchTimeout)
   const isShellOnly = body.length < SSR_MIN_BYTES ||
     (body.includes('<div id="app"></div>') && !body.includes('__NUXT__') && !body.includes('__NEXT_DATA__'));
 
-  if (isShellOnly) {
+  if (isShellOnly && !shouldSkipPuppeteer(targetUrl)) {
     console.log('[proxy] Fetch returned SPA shell, trying Puppeteer for:', targetUrl);
     try {
       const html = await renderHtmlWithPuppeteer(targetUrl, req, signal);

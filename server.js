@@ -58,7 +58,7 @@ const server = http.createServer(async (req, res) => {
     console.error('Response error:', err.message);
   });
 
-  const pathname = req.url?.split('?')[0] || req.url;
+  let pathname = req.url?.split('?')[0] || req.url;
 
   if (pathname === '/health') {
     const mem = process.memoryUsage();
@@ -138,6 +138,15 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(302, { Location: redirectUrl });
       res.end();
       return;
+    }
+  }
+
+  // Alias .htm → .html for app shell files
+  // (some sites or browser behaviors request .htm variant)
+  if (pathname.endsWith('.htm')) {
+    const htmlVariant = pathname + 'l';
+    if (fs.existsSync('.' + htmlVariant)) {
+      pathname = htmlVariant;
     }
   }
 
