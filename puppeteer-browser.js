@@ -127,24 +127,47 @@ function findChromiumPath() {
   return null;
 }
 
-function buildPageHeaders(req) {
+const STEALTH_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+const AGE_GATE_COOKIES = {
+  'xvideos.com': 'platform=pc; age_verified=1',
+  'xnxx.com': 'platform=pc; age_verified=1',
+  'xhamster.com': 'age_confirmed=1; platform=desktop',
+  'eporner.com': 'verified_age=1',
+  'redtube.com': 'age_verified=1',
+  'youporn.com': 'age_verified=1',
+  'tube8.com': 'age_verified=1',
+  'pornhub.com': 'age_verified=1',
+  'jav.guru': 'ageGate=true',
+};
+
+function getAgeGateCookies(targetUrl) {
+  try {
+    const host = new URL(targetUrl).hostname.replace(/^www\./, '');
+    for (const [domain, cookies] of Object.entries(AGE_GATE_COOKIES)) {
+      if (host.includes(domain)) return cookies;
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function buildPageHeaders(req, targetUrl) {
   const headers = {
-    'User-Agent': pickUserAgent(),
-    Accept:
-      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.9',
-    'Cache-Control': 'no-cache',
-    Pragma: 'no-cache',
-    'Upgrade-Insecure-Requests': '1',
-    DNT: '1',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     'Sec-Fetch-Dest': 'document',
     'Sec-Fetch-Mode': 'navigate',
     'Sec-Fetch-Site': 'none',
     'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
   };
 
-  if (req?.headers?.cookie) {
-    headers.Cookie = req.headers.cookie;
+  const cookies = [req?.headers?.cookie, getAgeGateCookies(targetUrl)].filter(Boolean).join('; ');
+  if (cookies) {
+    headers.Cookie = cookies;
   }
 
   return headers;
@@ -263,9 +286,14 @@ async function renderHtmlWithPuppeteerInner(targetUrl, req, signal) {
     }
 
     try {
-      if (!isPlayerDomainUrl(targetUrl)) {
-        await page.setExtraHTTPHeaders(buildPageHeaders(req));
-      }
+      await page.setUserAgent(STEALTH_USER_AGENT);
+      await page.setExtraHTTPHeaders(buildPageHeaders(req, targetUrl));
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        window.chrome = { runtime: {} };
+      });
       await page.setRequestInterception(true);
       page.on('request', (request) => {
         const type = request.resourceType();

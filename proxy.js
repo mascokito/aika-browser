@@ -152,6 +152,53 @@ function buildInjectedScript(pageUrl) {
     }
   })();
 
+  // Auto-dismiss age gates on known adult sites
+  (function dismissAgeGate() {
+    var SELECTORS = [
+      '#age-disclaimer-btn-agree',
+      '.age-disclaimer__link[href*="agree"]',
+      '.agegate-next-btn',
+      '[data-role="agegate-accept"]',
+      'button[class*="age"][class*="agree"]',
+      'button[class*="confirm"][class*="age"]',
+      'a[href*="age_verified=1"]',
+      'a[href*="agree_age"]',
+      '#age_verified',
+      '.age-verify-btn',
+      '[data-action="age-verify"]',
+    ];
+
+    function tryDismiss() {
+      for (var i = 0; i < SELECTORS.length; i++) {
+        var el = document.querySelector(SELECTORS[i]);
+        if (el) {
+          el.click();
+          console.log('[aika] Age gate dismissed:', SELECTORS[i]);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(tryDismiss, 500);
+        setTimeout(tryDismiss, 1500);
+      });
+    } else {
+      setTimeout(tryDismiss, 300);
+      setTimeout(tryDismiss, 1000);
+    }
+
+    var ageObs = new MutationObserver(function() {
+      tryDismiss();
+    });
+    if (document.body) {
+      ageObs.observe(document.body, { childList: true, subtree: true });
+      setTimeout(function() { ageObs.disconnect(); }, 10000);
+    }
+  })();
+
   function getVideoInfo(v) {
     var rect = v.getBoundingClientRect();
     return {
@@ -168,14 +215,15 @@ function buildInjectedScript(pageUrl) {
 
   function isMainPlayer(v) {
     var rect = v.getBoundingClientRect();
-    if (rect.width < 320 || rect.height < 180) return false;
+    if (rect.width < 400 || rect.height < 225) return false;
     if (v.loop) return false;
+    if (v.muted && v.autoplay) return false;
     var allVideos = Array.from(document.querySelectorAll('video'));
     var myArea = rect.width * rect.height;
     for (var i = 0; i < allVideos.length; i++) {
       if (allVideos[i] === v) continue;
       var r = allVideos[i].getBoundingClientRect();
-      if (r.width * r.height > myArea) return false;
+      if (r.width * r.height > myArea * 1.1) return false;
     }
     return true;
   }
@@ -444,6 +492,24 @@ function buildInjectedScript(pageUrl) {
       }
     });
 
+    var xvHls = html.match(/setVideoHLS\s*\(\s*['"]([^'"]+\.m3u8[^'"]*)['"]/gi) || [];
+    xvHls.forEach(function(m) {
+      var url = m.match(/['"]([^'"]+\.m3u8[^'"]*)['"]/i);
+      if (url) addStream(url[1], 'HLS');
+    });
+
+    var phUrls = html.match(/"videoUrl"\s*:\s*"([^"]+\.(?:m3u8|mp4)[^"]*)"/gi) || [];
+    phUrls.forEach(function(m) {
+      var url = m.match(/"videoUrl"\s*:\s*"([^"]+)"/i);
+      if (url) addStream(url[1], url[1].includes('.m3u8') ? 'HLS' : 'MP4');
+    });
+
+    var mgHls = html.match(/"hls"\s*:\s*"([^"]+\.m3u8[^'"]*)"/gi) || [];
+    mgHls.forEach(function(m) {
+      var url = m.match(/"hls"\s*:\s*"([^"]+)"/i);
+      if (url) addStream(url[1], 'HLS');
+    });
+
     streams.forEach(function(s) {
       window.parent.postMessage({
         type: 'aika-stream-detected',
@@ -633,6 +699,30 @@ const CDN_REFERER_MAP = {
   'streamtape.com': 'https://streamtape.com/',
 };
 
+const AGE_GATE_COOKIES = {
+  'xvideos.com': 'platform=pc; age_verified=1',
+  'xnxx.com': 'platform=pc; age_verified=1',
+  'xhamster.com': 'age_confirmed=1; platform=desktop',
+  'eporner.com': 'verified_age=1',
+  'redtube.com': 'age_verified=1',
+  'youporn.com': 'age_verified=1',
+  'tube8.com': 'age_verified=1',
+  'pornhub.com': 'age_verified=1',
+  'jav.guru': 'ageGate=true',
+};
+
+function getAgeGateCookies(targetUrl) {
+  try {
+    const host = new URL(targetUrl).hostname.replace(/^www\./, '');
+    for (const [domain, cookies] of Object.entries(AGE_GATE_COOKIES)) {
+      if (host.includes(domain)) return cookies;
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
 function getCdnReferer(targetUrl) {
   try {
     const host = new URL(targetUrl).hostname;
@@ -689,6 +779,11 @@ function buildOutboundHeaders(req, targetUrl) {
 
   if (req.headers.cookie) {
     headers.Cookie = req.headers.cookie;
+  }
+
+  const ageGateCookie = getAgeGateCookies(targetUrl);
+  if (ageGateCookie) {
+    headers.Cookie = headers.Cookie ? `${headers.Cookie}; ${ageGateCookie}` : ageGateCookie;
   }
 
   const cdnReferer = getCdnReferer(targetUrl);
@@ -1128,6 +1223,52 @@ function extractStreamUrls(html, pageUrl) {
     addStream(url, type);
   }
 
+  const flashvarsMatches = html.matchAll(/"videoUrl"\s*:\s*"([^"]+\.(?:m3u8|mp4)[^"]*)"/gi);
+  for (const m of flashvarsMatches) {
+    const url = m[1].replace(/\\\//g, '/');
+    addStream(url, url.includes('.m3u8') ? 'HLS' : 'MP4');
+  }
+
+  const phQualityMatches = html.matchAll(
+    /"quality"\s*:\s*"[^"]*"[^}]*"videoUrl"\s*:\s*"([^"]+)"/gi
+  );
+  for (const m of phQualityMatches) {
+    const url = m[1].replace(/\\\//g, '/');
+    addStream(url, url.includes('.m3u8') ? 'HLS' : 'MP4');
+  }
+
+  const xvHlsMatches = html.matchAll(/setVideoHLS\s*\(\s*['"]([^'"]+\.m3u8[^'"]*)['"]/gi);
+  for (const m of xvHlsMatches) addStream(m[1], 'HLS');
+
+  const xvMp4Matches = html.matchAll(/setVideoUrlHigh\s*\(\s*['"]([^'"]+\.mp4[^'"]*)['"]/gi);
+  for (const m of xvMp4Matches) addStream(m[1], 'MP4');
+
+  const xvLowMatches = html.matchAll(/setVideoUrlLow\s*\(\s*['"]([^'"]+\.mp4[^'"]*)['"]/gi);
+  for (const m of xvLowMatches) addStream(m[1], 'MP4');
+
+  const mgHlsMatches = html.matchAll(/"hls"\s*:\s*"([^"]+\.m3u8[^"]*)"/gi);
+  for (const m of mgHlsMatches) addStream(m[1].replace(/\\\//g, '/'), 'HLS');
+
+  const mgMp4Matches = html.matchAll(/"src"\s*:\s*"(https?:\/\/[^"]+\.mp4[^"]*)"/gi);
+  for (const m of mgMp4Matches) addStream(m[1].replace(/\\\//g, '/'), 'MP4');
+
+  const epornerMatches = html.matchAll(/"file"\s*:\s*"(https?:\/\/[^"]+\.mp4[^"]*)"/gi);
+  for (const m of epornerMatches) addStream(m[1].replace(/\\\//g, '/'), 'MP4');
+
+  const genericVideoUrl = html.matchAll(
+    /"(?:videoUrl|hlsUrl|streamUrl|hls_url|video_url|stream_url)"\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mp4)[^"]*)"/gi
+  );
+  for (const m of genericVideoUrl) {
+    const url = m[1].replace(/\\\//g, '/');
+    addStream(url, url.includes('.m3u8') ? 'HLS' : 'MP4');
+  }
+
+  const escapedUrls = html.matchAll(/"(https?:\\\/\\\/[^"]+\.(?:m3u8|mp4)[^"]*)"/gi);
+  for (const m of escapedUrls) {
+    const url = m[1].replace(/\\\//g, '/');
+    addStream(url, url.includes('.m3u8') ? 'HLS' : 'MP4');
+  }
+
   const embedMatches = html.matchAll(/["'`](https?:\/\/[^"'`\s]+?)["'`]/g);
   for (const m of embedMatches) {
     addEmbed(m[1]);
@@ -1564,6 +1705,29 @@ async function respondFromUpstream(upstream, targetUrl, res, { htmlRender = 'fet
 // If fetch returns less than this, try Puppeteer (page likely needs JS).
 const SSR_MIN_BYTES = 5_000;
 
+const PUPPETEER_VIDEO_DOMAINS = [
+  'redtube.com',
+  'youporn.com',
+  'tube8.com',
+  'xhamster.com',
+  'pornhub.com',
+  'spankbang.com',
+  'eporner.com',
+];
+
+function requiresPuppeteerForVideo(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, '');
+    const isVideoPage =
+      /\/(video|view_video|videos?|watch|v)\b/.test(parsed.pathname) ||
+      /\/[a-z0-9_-]+-\d+\.html?$/i.test(parsed.pathname);
+    return PUPPETEER_VIDEO_DOMAINS.includes(host) && isVideoPage;
+  } catch {
+    return false;
+  }
+}
+
 async function proxyHtmlDocument(targetUrl, req, res, signal, clearFetchTimeout) {
   if (!looksLikeHtmlPage(targetUrl) || getForcedContentType(targetUrl)) {
     const upstream = await fetchWithRedirects(targetUrl, signal, req);
@@ -1604,6 +1768,17 @@ async function proxyHtmlDocument(targetUrl, req, res, signal, clearFetchTimeout)
       return sendHtmlProxyResponse(res, modified, { render: 'puppeteer', targetUrl });
     } catch (puppeteerErr) {
       console.warn('[proxy] Puppeteer failed, using fetch shell:', puppeteerErr.message);
+    }
+  }
+
+  if (!isShellOnly && requiresPuppeteerForVideo(targetUrl)) {
+    console.log('[proxy] Video domain detected, trying Puppeteer for:', targetUrl);
+    try {
+      const html = await renderHtmlWithPuppeteer(targetUrl, req, signal);
+      const modified = rewriteHtml(html, targetUrl);
+      return sendHtmlProxyResponse(res, modified, { render: 'puppeteer', targetUrl });
+    } catch (puppeteerErr) {
+      console.warn('[proxy] Puppeteer failed for video domain, using fetch:', puppeteerErr.message);
     }
   }
 
