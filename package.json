@@ -24,5 +24,8 @@
     "halftone",
     "webgl"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "canvas": "^3.2.3"
+  }
 }

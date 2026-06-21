@@ -1,6 +1,7 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { handleProxy, handleEmbedExtract } from './proxy.js';
 import {
   initPuppeteerBrowser,
@@ -10,6 +11,7 @@ import {
 } from './puppeteer-browser.js';
 
 const PORT = process.env.PORT || 3000;
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 /** Prefer Referer (nested iframe context) over cookie for catch-all asset redirects. */
 function extractProxyOrigin(req) {
@@ -81,6 +83,46 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname.startsWith('/proxy')) {
     return handleProxy(req, res);
+  }
+
+  if (pathname === '/manifest.json') {
+    const manifestPath = path.join(projectRoot, 'manifest.json');
+    try {
+      const content = fs.readFileSync(manifestPath, 'utf8');
+      res.writeHead(200, {
+        'Content-Type': 'application/manifest+json',
+        'Cache-Control': 'public, max-age=3600',
+      });
+      res.end(content);
+      return;
+    } catch {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+  }
+
+  if (pathname.startsWith('/icons/')) {
+    const iconPath = path.join(projectRoot, pathname);
+    const iconsDir = path.join(projectRoot, 'icons');
+    if (!iconPath.startsWith(iconsDir)) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    try {
+      const content = fs.readFileSync(iconPath);
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400',
+      });
+      res.end(content);
+      return;
+    } catch {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
   }
 
   const ASSET_INTERCEPT = /^\/((_app|_next|static|assets|dist|build|public|immutable)\/.+)$/;

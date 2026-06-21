@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Aika Browser</title>
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4dba6a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Aika">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
@@ -354,6 +361,36 @@
       font-weight: bold;
     }
 
+    #installPrompt {
+      position: fixed;
+      top: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg2);
+      border: 1px solid var(--viridian);
+      border-radius: 8px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font);
+      font-size: 12px;
+      color: var(--text);
+      z-index: 500;
+      white-space: nowrap;
+    }
+    #installPrompt.hidden { display: none; }
+    #btnInstall {
+      background: var(--viridian);
+      color: var(--bg);
+      border: none;
+      padding: 4px 12px;
+      font-family: var(--font);
+      font-size: 11px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -366,6 +403,12 @@
     <button id="btnScan" type="button" title="Scan for video streams">⊙</button>
     <input id="urlInput" type="url" placeholder="Enter URL..." autocomplete="off" spellcheck="false">
     <button id="btnGo" type="button">GO</button>
+  </div>
+
+  <div id="installPrompt" class="hidden">
+    <span>Add Aika to Home Screen</span>
+    <button id="btnInstall" type="button">ADD</button>
+    <button id="btnDismissInstall" type="button">✕</button>
   </div>
 
   <div id="browseView">
@@ -1477,6 +1520,34 @@ window.addEventListener('message', (e) => {
 navigator.serviceWorker?.addEventListener('message', (event) => {
   const { type, stream } = event.data || {};
   if (type === 'aika-stream-detected') onStreamDetected(stream);
+});
+
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  setTimeout(() => {
+    document.getElementById('installPrompt').classList.remove('hidden');
+  }, 30000);
+});
+
+document.getElementById('btnInstall')?.addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  const { outcome } = await deferredInstallPrompt.userChoice;
+  console.log('[aika] Install prompt outcome:', outcome);
+  deferredInstallPrompt = null;
+  document.getElementById('installPrompt').classList.add('hidden');
+});
+
+document.getElementById('btnDismissInstall')?.addEventListener('click', () => {
+  document.getElementById('installPrompt').classList.add('hidden');
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('[aika] App installed');
+  document.getElementById('installPrompt').classList.add('hidden');
 });
 
 registerSW();
