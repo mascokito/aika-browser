@@ -5,18 +5,29 @@ import fetch from 'node-fetch';
 import { renderHtmlWithPuppeteer } from './puppeteer-browser.js';
 
 let adblocker = null;
+let adblockerInitPromise = null;
 
-async function initAdblocker() {
-  try {
-    const engine = await FiltersEngine.fromPrebuiltAdsAndTracking(fetch);
-    adblocker = engine;
-    console.log('[adblocker] Initialized successfully');
-  } catch (err) {
-    console.warn('[adblocker] Failed to init:', err.message);
+async function getAdblocker() {
+  if (adblocker) return adblocker;
+  if (!adblockerInitPromise) {
+    adblockerInitPromise = FiltersEngine.fromPrebuiltAdsAndTracking(fetch)
+      .then((engine) => {
+        adblocker = engine;
+        console.log('[adblocker] Initialized successfully (lazy)');
+        return engine;
+      })
+      .catch((err) => {
+        console.warn('[adblocker] Failed to init:', err.message);
+        adblockerInitPromise = null;
+        return null;
+      });
   }
+  return adblockerInitPromise;
 }
 
-initAdblocker();
+export function getAdblockerHealth() {
+  return { initialized: !!adblocker };
+}
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -1890,8 +1901,9 @@ export async function handleProxy(req, res) {
       (w) => hostname.includes(w) || targetUrl.includes(w)
     );
 
-    if (!isWhitelisted && adblocker) {
-      const { match } = adblocker.match(
+    const blocker = await getAdblocker();
+    if (!isWhitelisted && blocker) {
+      const { match } = blocker.match(
         Request.fromRawDetails({
           url: targetUrl,
           type: mapFetchDestToRequestType(req.headers['sec-fetch-dest']),

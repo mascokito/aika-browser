@@ -2,9 +2,8 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { handleProxy, handleEmbedExtract } from './proxy.js';
+import { handleProxy, handleEmbedExtract, getAdblockerHealth } from './proxy.js';
 import {
-  initPuppeteerBrowser,
   closePuppeteerBrowser,
   getPuppeteerHealth,
   activeRenders,
@@ -69,7 +68,8 @@ const server = http.createServer(async (req, res) => {
         heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + 'MB',
         heapTotal: Math.round(mem.heapTotal / 1024 / 1024) + 'MB',
       },
-      ...getPuppeteerHealth(),
+      puppeteer: getPuppeteerHealth(),
+      adblocker: getAdblockerHealth(),
       activeRenders,
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -249,13 +249,7 @@ process.on('uncaughtException', (err) => {
 });
 
 async function start() {
-  try {
-    await initPuppeteerBrowser();
-  } catch (err) {
-    console.warn(
-      `[puppeteer] Browser not available at startup (${err.message}); HTML proxy will use fetch fallback`
-    );
-  }
+  console.log('[puppeteer] Lazy launch enabled — Chrome starts on first SSR request');
 
   server.listen(PORT, () => {
     console.log(`Aika Browser running on port ${PORT}`);

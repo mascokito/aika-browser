@@ -2,10 +2,31 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
 
+const PUPPETEER_ENABLED = process.env.PUPPETEER_ENABLED !== 'false';
+
 let renderQueue = Promise.resolve();
 
 // In-flight render promises keyed by URL
 const inFlightRenders = new Map();
+
+let idleShutdownTimer = null;
+const IDLE_SHUTDOWN_MS = 5 * 60 * 1000;
+
+function scheduleIdleShutdown() {
+  if (!PUPPETEER_ENABLED) return;
+  clearTimeout(idleShutdownTimer);
+  idleShutdownTimer = setTimeout(async () => {
+    if (browser?.isConnected()) {
+      console.log('[puppeteer] Idle shutdown — closing browser to free memory');
+      await browser.close().catch(() => {});
+      browser = null;
+    }
+  }, IDLE_SHUTDOWN_MS);
+}
+
+function cancelIdleShutdown() {
+  clearTimeout(idleShutdownTimer);
+}
 
 const LAUNCH_ARGS = [
   '--no-sandbox',
@@ -15,6 +36,17 @@ const LAUNCH_ARGS = [
   '--no-first-run',
   '--no-zygote',
   '--single-process',
+  '--disable-extensions',
+  '--disable-background-networking',
+  '--disable-sync',
+  '--disable-translate',
+  '--metrics-recording-only',
+  '--mute-audio',
+  '--safebrowsing-disable-auto-update',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--js-flags=--max-old-space-size=256',
 ];
 
 const NAV_TIMEOUT_MS = 8_000;
@@ -178,6 +210,7 @@ function buildPageHeaders(req, targetUrl) {
 }
 
 function scheduleRelaunch() {
+  if (!PUPPETEER_ENABLED) return;
   if (relaunchScheduled) return;
   relaunchScheduled = true;
   browser = null;
@@ -221,6 +254,10 @@ async function launchBrowser() {
 }
 
 export async function initPuppeteerBrowser() {
+  if (!PUPPETEER_ENABLED) {
+    console.log('[puppeteer] Disabled via PUPPETEER_ENABLED=false');
+    return null;
+  }
   if (browser?.isConnected()) return browser;
   if (browserLaunching) return browserLaunching;
 
@@ -238,20 +275,22 @@ export async function initPuppeteerBrowser() {
 }
 
 export async function getBrowser() {
+  if (!PUPPETEER_ENABLED) return null;
   if (browser?.isConnected()) return browser;
   return initPuppeteerBrowser();
 }
 
 export function getPuppeteerHealth() {
-  const connected = Boolean(browser?.isConnected());
+  if (!PUPPETEER_ENABLED) {
+    return { enabled: false, connected: false };
+  }
   return {
-    puppeteer: {
-      connected,
-      launching: Boolean(browserLaunching),
-      chromiumPath: findChromiumPath(),
-      lastLaunchAt,
-      lastLaunchError,
-    },
+    enabled: true,
+    connected: browser?.isConnected() ?? false,
+    launching: Boolean(browserLaunching),
+    chromiumPath: findChromiumPath(),
+    lastLaunchAt,
+    lastLaunchError,
   };
 }
 
@@ -270,6 +309,7 @@ export async function closePuppeteerBrowser() {
  * @throws on navigation/render failure (caller should fall back to fetch)
  */
 export async function renderHtmlWithPuppeteer(targetUrl, req, signal) {
+  if (!PUPPETEER_ENABLED) throw new Error('Puppeteer disabled');
   if (inFlightRenders.has(targetUrl)) {
     console.log('[puppeteer] Coalescing duplicate render for:', targetUrl.slice(0, 80));
     return inFlightRenders.get(targetUrl);
@@ -288,6 +328,7 @@ export async function renderHtmlWithPuppeteer(targetUrl, req, signal) {
 }
 
 async function renderHtmlWithPuppeteerInner(targetUrl, req, signal) {
+  cancelIdleShutdown();
   activeRenders++;
 
   try {
@@ -353,6 +394,7 @@ async function renderHtmlWithPuppeteerInner(targetUrl, req, signal) {
       return html;
     } finally {
       await page.close().catch(() => {});
+      scheduleIdleShutdown();
     }
   } finally {
     activeRenders--;
