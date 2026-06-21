@@ -72,6 +72,23 @@
       height: 100%;
       object-fit: contain;
       pointer-events: none;
+      opacity: 0;
+    }
+
+    #aikavid::-webkit-media-controls {
+      display: none !important;
+    }
+    #aikavid::-webkit-media-controls-enclosure {
+      display: none !important;
+    }
+    #aikavid::-webkit-media-controls-panel {
+      display: none !important;
+    }
+    video::-webkit-media-controls-play-button {
+      display: none !important;
+    }
+    video::-webkit-media-controls-start-playback-button {
+      display: none !important;
     }
 
     #aikaCanvas, #aikaGlCanvas {
@@ -105,6 +122,33 @@
       font-size: 13px;
       color: rgba(255,255,255,0.4);
       letter-spacing: 6px;
+    }
+
+    #pauseIndicator {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 2px solid rgba(255,255,255,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 20;
+      transition: opacity 0.2s;
+    }
+    #pauseIndicator.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #pauseIcon {
+      font-size: 28px;
+      color: white;
+      margin-left: 4px;
     }
 
     /* ── Controls Shell ─────────────────────────────────────── */
@@ -426,9 +470,13 @@
       <div id="tapToPlayLabel">TAP TO PLAY</div>
     </div>
     <div id="videoWrapper">
-      <video id="aikavid" playsinline muted crossorigin="anonymous"></video>
+      <video id="aikavid" playsinline muted crossorigin="anonymous"
+        disablepictureinpicture disableremoteplayback></video>
       <canvas id="aikaCanvas"></canvas>
       <canvas id="aikaGlCanvas"></canvas>
+    </div>
+    <div id="pauseIndicator" class="hidden">
+      <div id="pauseIcon">▶</div>
     </div>
   </div>
 
@@ -936,6 +984,8 @@ async function registerSW() {
   try {
     const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     console.log('[aika] SW registered:', reg.scope);
+    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    reg.update();
     await navigator.serviceWorker.ready;
     return true;
   } catch (e) {
@@ -1010,11 +1060,13 @@ function suspendOverlay() {
 
   aikavid.pause();
   aikavid.src = '';
+  aikavid.controls = false;
 
   const ctx = aikaCanvas.getContext('2d');
   if (ctx) ctx.clearRect(0, 0, aikaCanvas.width, aikaCanvas.height);
   aikaGlCanvas.style.display = 'none';
   tapToPlay.classList.add('hidden');
+  pauseIndicator.classList.add('hidden');
 
   playbackView.classList.add('hidden');
   state.streams = [];
@@ -1033,15 +1085,6 @@ function positionOverlay(rect) {
   playbackView.style.top = top + 'px';
   playbackView.style.width = width + 'px';
   playbackView.style.height = height + 'px';
-
-  const glCanvas = document.getElementById('aikaGlCanvas');
-  const rw = Math.round(width);
-  const rh = Math.round(height);
-  if (glCanvas.width !== rw || glCanvas.height !== rh) {
-    glCanvas.width = rw;
-    glCanvas.height = rh;
-    if (webglReady && gl) gl.viewport(0, 0, rw, rh);
-  }
 }
 
 async function attachToVideo(msg) {
@@ -1071,6 +1114,7 @@ async function attachToVideo(msg) {
 
   aikavid.src = videoSrc;
   aikavid.muted = true;
+  aikavid.controls = false;
   state.muted = true;
   volumeSlider.value = '1';
   if (msg.currentTime) aikavid.currentTime = msg.currentTime;
@@ -1080,6 +1124,7 @@ async function attachToVideo(msg) {
   playbackView.classList.remove('hidden');
 
   tapToPlay.classList.remove('hidden');
+  pauseIndicator.classList.add('hidden');
   btnPlayPause.textContent = '▶';
 }
 
@@ -1127,12 +1172,14 @@ async function attachToEmbed(msg) {
 
   aikavid.src = best.proxyUrl;
   aikavid.muted = true;
+  aikavid.controls = false;
   state.muted = true;
   volumeSlider.value = '1';
   aikavid.load();
 
   playbackView.classList.remove('hidden');
   tapToPlay.classList.remove('hidden');
+  pauseIndicator.classList.add('hidden');
   btnPlayPause.textContent = '▶';
 }
 
@@ -1308,6 +1355,7 @@ const timeDisplay = document.getElementById('timeDisplay');
 const seekBar = document.getElementById('seekBar');
 const volumeSlider = document.getElementById('volumeSlider');
 const tapToPlay = document.getElementById('tapToPlay');
+const pauseIndicator = document.getElementById('pauseIndicator');
 const sizeSlider = document.getElementById('sizeSlider');
 const sizeVal = document.getElementById('sizeVal');
 const brightSlider = document.getElementById('brightSlider');
@@ -1401,20 +1449,30 @@ btnPlayPause.addEventListener('click', () => {
 });
 
 aikavid.addEventListener('play', () => {
+  pauseIndicator.classList.add('hidden');
   btnPlayPause.textContent = '⏸';
   if (!state.rafId) state.rafId = requestAnimationFrame(renderFrame);
 });
 
 aikavid.addEventListener('pause', () => {
+  if (state.playbackActive && aikavid.currentTime > 0) {
+    pauseIndicator.classList.remove('hidden');
+  }
   btnPlayPause.textContent = '▶';
 });
 
 aikavid.addEventListener('ended', () => {
+  pauseIndicator.classList.remove('hidden');
   btnPlayPause.textContent = '▶';
 });
 
 aikavid.addEventListener('playing', () => {
+  pauseIndicator.classList.add('hidden');
   tapToPlay.classList.add('hidden');
+});
+
+pauseIndicator.addEventListener('click', () => {
+  aikavid.play().catch(e => console.warn('[aika] play:', e.message));
 });
 
 aikavid.addEventListener('loadedmetadata', () => {

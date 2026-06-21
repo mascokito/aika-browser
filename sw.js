@@ -1,7 +1,7 @@
 // sw.js — Aika Browser Service Worker
 // Intercepts all proxy requests and detects video stream URLs
 
-const CACHE_NAME = 'aika-v1';
+const CACHE_NAME = 'aika-v2';
 const APP_SHELL = [
   '/browser.html',
   '/manifest.json',
@@ -115,7 +115,15 @@ self.addEventListener('fetch', (event) => {
 
   if (APP_SHELL.some(path => url.endsWith(path))) {
     event.respondWith(
-      caches.match(event.request).then(cached => cached || fetch(event.request))
+      fetch(event.request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }
