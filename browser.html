@@ -637,6 +637,7 @@ const state = {
   playbackActive: false,
   overlayArmed: false,
   rafId: null,
+  useRVFC: false,
   lastFrame: 0,
   lastVw: 0,
   lastVh: 0,
@@ -1123,8 +1124,7 @@ function disarmOverlay() {
 
 function suspendOverlay(clearStreams = true) {
   state.playbackActive = false;
-  cancelAnimationFrame(state.rafId);
-  state.rafId = null;
+  cancelRenderLoop();
   state.lastFrame = 0;
   state.lastVw = 0;
   state.lastVh = 0;
@@ -1334,17 +1334,42 @@ function ensureSampleCanvas(vw, vh) {
   return { w: W, h: H, ctx: state.sampleCtx };
 }
 
-function renderFrame(ts) {
-  if (aikavid.paused || aikavid.ended || !aikavid.videoWidth) {
-    state.rafId = null;
-    return;
+const HAS_RVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+
+function scheduleRenderFrame() {
+  if (HAS_RVFC) {
+    state.rafId = aikavid.requestVideoFrameCallback(onVideoFrame);
+  } else {
+    state.rafId = requestAnimationFrame(renderFrame);
   }
+}
 
-  state.rafId = requestAnimationFrame(renderFrame);
+function cancelRenderLoop() {
+  if (state.rafId === null) return;
+  if (HAS_RVFC) {
+    aikavid.cancelVideoFrameCallback(state.rafId);
+  } else {
+    cancelAnimationFrame(state.rafId);
+  }
+  state.rafId = null;
+}
 
-  const now = ts || performance.now();
-  if (state.lastFrame && now - state.lastFrame < 33) return;
-  state.lastFrame = now;
+function onVideoFrame(now, metadata) {
+  state.rafId = aikavid.requestVideoFrameCallback(onVideoFrame);
+  renderFrame(now);
+}
+
+function renderFrame(ts) {
+  if (!HAS_RVFC) {
+    if (aikavid.paused || aikavid.ended || !aikavid.videoWidth) {
+      state.rafId = null;
+      return;
+    }
+    state.rafId = requestAnimationFrame(renderFrame);
+    const now = ts || performance.now();
+    if (state.lastFrame && now - state.lastFrame < 33) return;
+    state.lastFrame = now;
+  }
 
   const vw = aikavid.videoWidth;
   const vh = aikavid.videoHeight;
@@ -1423,9 +1448,17 @@ function renderFrame(ts) {
 }
 
 function startRenderLoop() {
-  cancelAnimationFrame(state.rafId);
-  state.lastFrame = 0;
-  state.rafId = requestAnimationFrame(renderFrame);
+  cancelRenderLoop();
+  if (HAS_RVFC) {
+    state.useRVFC = true;
+    state.rafId = aikavid.requestVideoFrameCallback(onVideoFrame);
+    console.log('[aika] Using requestVideoFrameCallback for render loop');
+  } else {
+    state.useRVFC = false;
+    state.lastFrame = 0;
+    state.rafId = requestAnimationFrame(renderFrame);
+    console.log('[aika] Using requestAnimationFrame for render loop (rVFC not available)');
+  }
 }
 
 function navigate(url) {
@@ -1582,10 +1615,11 @@ btnPlayPause.addEventListener('click', () => {
 aikavid.addEventListener('play', () => {
   pauseIndicator.classList.add('hidden');
   btnPlayPause.textContent = '⏸';
-  if (!state.rafId) state.rafId = requestAnimationFrame(renderFrame);
+  if (!state.rafId) startRenderLoop();
 });
 
 aikavid.addEventListener('pause', () => {
+  cancelRenderLoop();
   if (state.playbackActive && aikavid.currentTime > 0) {
     pauseIndicator.classList.remove('hidden');
   }
