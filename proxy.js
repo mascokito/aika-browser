@@ -523,23 +523,30 @@ function buildInjectedScript(pageUrl) {
       }
     });
 
-    var xvHls = html.match(/setVideoHLS\s*\(\s*['"]([^'"]+\.m3u8[^'"]*)['"]/gi) || [];
-    xvHls.forEach(function(m) {
-      var url = m.match(/['"]([^'"]+\.m3u8[^'"]*)['"]/i);
-      if (url) addStream(url[1], 'HLS');
-    });
+    var xvHlsRe = /setVideoHLS\\s*\\(\\s*['"]([^'"]+\\.m3u8[^'"]*)['"]/gi;
+    var xvHlsMatch;
+    while ((xvHlsMatch = xvHlsRe.exec(html)) !== null) {
+      addStream(xvHlsMatch[1], 'HLS');
+    }
 
-    var phUrls = html.match(/"videoUrl"\s*:\s*"([^"]+\.(?:m3u8|mp4)[^"]*)"/gi) || [];
-    phUrls.forEach(function(m) {
-      var url = m.match(/"videoUrl"\s*:\s*"([^"]+)"/i);
-      if (url) addStream(url[1], url[1].includes('.m3u8') ? 'HLS' : 'MP4');
-    });
+    var xvMp4Re = /setVideoUrl(?:High|Low)\\s*\\(\\s*['"]([^'"]+\\.mp4[^'"]*)['"]/gi;
+    var xvMp4Match;
+    while ((xvMp4Match = xvMp4Re.exec(html)) !== null) {
+      addStream(xvMp4Match[1], 'MP4');
+    }
 
-    var mgHls = html.match(/"hls"\s*:\s*"([^"]+\.m3u8[^'"]*)"/gi) || [];
-    mgHls.forEach(function(m) {
-      var url = m.match(/"hls"\s*:\s*"([^"]+)"/i);
-      if (url) addStream(url[1], 'HLS');
-    });
+    var phUrlsRe = /"videoUrl"\\s*:\\s*"([^"]+\\.(?:m3u8|mp4)[^"]*)"/gi;
+    var phUrlMatch;
+    while ((phUrlMatch = phUrlsRe.exec(html)) !== null) {
+      var phUrl = phUrlMatch[1];
+      addStream(phUrl, phUrl.indexOf('.m3u8') !== -1 ? 'HLS' : 'MP4');
+    }
+
+    var mgHlsRe = /"hls"\\s*:\\s*"([^"]+\\.m3u8[^'"]*)"/gi;
+    var mgHlsMatch;
+    while ((mgHlsMatch = mgHlsRe.exec(html)) !== null) {
+      addStream(mgHlsMatch[1], 'HLS');
+    }
 
     streams.forEach(function(s) {
       window.parent.postMessage({
