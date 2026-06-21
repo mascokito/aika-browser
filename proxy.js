@@ -215,22 +215,11 @@ function buildInjectedScript(pageUrl) {
 
   function isMainPlayer(v) {
     var rect = v.getBoundingClientRect();
-    if (rect.width < 400 || rect.height < 225) return false;
-    if (v.loop) return false;
-    if (v.muted && v.autoplay) return false;
-    var allVideos = Array.from(document.querySelectorAll('video'));
-    var myArea = rect.width * rect.height;
-    for (var i = 0; i < allVideos.length; i++) {
-      if (allVideos[i] === v) continue;
-      var r = allVideos[i].getBoundingClientRect();
-      if (r.width * r.height > myArea * 1.1) return false;
-    }
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    var style = window.getComputedStyle(v);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    if (parseFloat(style.opacity) === 0) return false;
     return true;
-  }
-
-  function isLongEnough(v) {
-    if (!v.duration || isNaN(v.duration) || v.duration === Infinity) return true;
-    return v.duration >= 60;
   }
 
   function attachVideo(v, trigger) {
@@ -286,8 +275,6 @@ function buildInjectedScript(pageUrl) {
     e.preventDefault();
     e.stopPropagation();
 
-    if (v.loop && v.duration > 0 && v.duration < 10) return;
-
     attachVideo(v, 'tap');
     startRectSync();
   }, true);
@@ -301,7 +288,6 @@ function buildInjectedScript(pageUrl) {
       if (window.__aikaActiveVideo) return;
       if (v.paused || v.__aikaAttached) return;
       if (!isMainPlayer(v)) return;
-      if (!isLongEnough(v)) return;
       attachVideo(v, 'autoplay');
       startRectSync();
     }
