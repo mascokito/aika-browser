@@ -1,1 +1,8 @@
 node_modules/
+
+# Test artifacts
+tests/
+_audit/
+*.test.html
+*_test.*
+canvas-test-screenshot.png
