@@ -199,6 +199,15 @@ function buildInjectedScript(pageUrl) {
     }
   })();
 
+  var lastReportedScroll = 0;
+  window.addEventListener('scroll', function() {
+    var sy = window.scrollY || document.documentElement.scrollTop;
+    if (Math.abs(sy - lastReportedScroll) > 10) {
+      lastReportedScroll = sy;
+      window.parent.postMessage({ type: 'aika-scroll', scrollY: sy }, '*');
+    }
+  }, { passive: true });
+
   function getVideoInfo(v) {
     var rect = v.getBoundingClientRect();
     return {
@@ -215,28 +224,45 @@ function buildInjectedScript(pageUrl) {
 
   function isMainPlayer(v) {
     if (v.__aikaAttached) return false;
-    if (window.__aikaActiveVideo) return false;
+    if (window.__aikaActiveVideo || window.__aikaPendingVideo) return false;
     var rect = v.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
     try {
       var style = window.getComputedStyle(v);
       if (style.display === 'none') return false;
       if (style.visibility === 'hidden') return false;
-      if (parseFloat(style.opacity) === 0) return false;
     } catch (e) {}
     return true;
   }
 
+  function confirmIframeAttach(v) {
+    if (!v) v = window.__aikaPendingVideo;
+    if (!v) return;
+    v.style.opacity = '0';
+    v.style.pointerEvents = 'none';
+    window.__aikaActiveVideo = v;
+    window.__aikaPendingVideo = null;
+  }
+
+  function releaseIframeAttach() {
+    var v = window.__aikaPendingVideo || window.__aikaActiveVideo;
+    if (v) {
+      v.style.opacity = '';
+      v.style.pointerEvents = '';
+      v.__aikaAttached = false;
+    }
+    window.__aikaPendingVideo = null;
+    window.__aikaActiveVideo = null;
+  }
+
   function attachVideo(v, trigger) {
-    if (window.__aikaActiveVideo) return;
+    if (window.__aikaActiveVideo || window.__aikaPendingVideo) return;
     if (v.__aikaAttached) return;
     var info = getVideoInfo(v);
     if (!info.rect.width || !info.rect.height) return;
 
-    v.style.opacity = '0';
-    v.style.pointerEvents = 'none';
     v.__aikaAttached = true;
-    window.__aikaActiveVideo = v;
+    window.__aikaPendingVideo = v;
 
     window.parent.postMessage({
       type: 'aika-video-attach',
@@ -280,11 +306,9 @@ function buildInjectedScript(pageUrl) {
     e.preventDefault();
     e.stopPropagation();
 
-    if (window.__aikaActiveVideo && window.__aikaActiveVideo !== v) {
-      window.__aikaActiveVideo.style.opacity = '';
-      window.__aikaActiveVideo.style.pointerEvents = '';
-      window.__aikaActiveVideo.__aikaAttached = false;
-      window.__aikaActiveVideo = null;
+    if ((window.__aikaActiveVideo || window.__aikaPendingVideo) &&
+        window.__aikaActiveVideo !== v && window.__aikaPendingVideo !== v) {
+      releaseIframeAttach();
       window.parent.postMessage({ type: 'aika-video-detach' }, '*');
     }
     attachVideo(v, 'tap');
@@ -293,11 +317,11 @@ function buildInjectedScript(pageUrl) {
 
   document.addEventListener('play', function(e) {
     if (e.target.tagName !== 'VIDEO') return;
-    if (window.__aikaActiveVideo) return;
+    if (window.__aikaActiveVideo || window.__aikaPendingVideo) return;
     var v = e.target;
 
     function tryAttach() {
-      if (window.__aikaActiveVideo) return;
+      if (window.__aikaActiveVideo || window.__aikaPendingVideo) return;
       if (v.paused || v.__aikaAttached) return;
       if (!isMainPlayer(v)) return;
       attachVideo(v, 'autoplay');
@@ -308,7 +332,7 @@ function buildInjectedScript(pageUrl) {
   }, true);
 
   (function pollForVideo() {
-    if (window.__aikaActiveVideo) return;
+    if (window.__aikaActiveVideo || window.__aikaPendingVideo) return;
     var v = document.querySelector('#html5video video, .html5-video-container video, video.vjs-tech');
     if (v && !v.__aikaAttached && !v.paused) {
       var rect = v.getBoundingClientRect();
@@ -548,13 +572,14 @@ function buildInjectedScript(pageUrl) {
     }
     if (d.type === 'aika-video-detach') {
       stopRectSync();
-      if (window.__aikaActiveVideo) {
-        window.__aikaActiveVideo.style.opacity = '';
-        window.__aikaActiveVideo.style.pointerEvents = '';
-        window.__aikaActiveVideo.__aikaAttached = false;
-        window.__aikaActiveVideo = null;
-      }
+      releaseIframeAttach();
       setTimeout(setupEmbedDetection, 100);
+    }
+    if (d.type === 'aika-attach-confirmed') {
+      confirmIframeAttach();
+    }
+    if (d.type === 'aika-attach-failed') {
+      releaseIframeAttach();
     }
   });
 })();

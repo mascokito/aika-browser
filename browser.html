@@ -34,12 +34,110 @@
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 0 8px;
+      gap: 4px;
+      padding: 0 6px;
       z-index: 100;
       transition: transform 0.3s ease;
+      font-family: var(--font);
+      padding-left: max(6px, env(safe-area-inset-left));
+      padding-right: max(6px, env(safe-area-inset-right));
     }
     #addressBar.hidden { transform: translateY(-100%); }
+
+    #btnBack, #btnForward, #btnRefresh {
+      background: transparent;
+      border: none;
+      color: #666;
+      font-size: 16px;
+      width: 36px;
+      height: 36px;
+      min-height: 44px;
+      min-width: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border-radius: 4px;
+      flex-shrink: 0;
+      transition: color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #btnBack:hover, #btnForward:hover, #btnRefresh:hover {
+      color: var(--viridian);
+    }
+
+    #urlInput {
+      flex: 1;
+      min-width: 0;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      color: var(--text);
+      padding: 6px 14px;
+      font-family: var(--font);
+      font-size: 13px;
+      height: 36px;
+      min-height: 44px;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    #urlInput:focus {
+      border-color: var(--viridian);
+      background: rgba(77, 186, 106, 0.05);
+    }
+
+    #btnScan {
+      background: transparent;
+      border: none;
+      color: #555;
+      font-size: 16px;
+      width: 32px;
+      height: 36px;
+      min-height: 44px;
+      min-width: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #btnScan:hover { color: var(--viridian); }
+
+    #btnGo {
+      background: var(--viridian);
+      color: var(--bg);
+      border: none;
+      border-radius: 6px;
+      padding: 0 12px;
+      height: 36px;
+      min-height: 44px;
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      flex-shrink: 0;
+      letter-spacing: 1px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #btnGo:hover { opacity: 0.85; }
+
+    @media (max-width: 480px) {
+      #btnBack, #btnForward, #btnRefresh {
+        display: none;
+      }
+      #urlInput {
+        font-size: 12px;
+        padding: 6px 10px;
+      }
+    }
+
+    @media (max-width: 320px) {
+      #btnGo {
+        padding: 0 8px;
+        font-size: 11px;
+      }
+    }
 
     #browseView {
       position: fixed;
@@ -373,38 +471,6 @@
       accent-color: var(--viridian);
     }
 
-    #addressBar button {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 8px 12px;
-      font-family: var(--font);
-      font-size: 11px;
-      cursor: pointer;
-      border-radius: 3px;
-      min-height: 44px;
-      min-width: 44px;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    #urlInput {
-      flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 8px 10px;
-      font-family: var(--font);
-      font-size: 13px;
-      border-radius: 3px;
-      min-height: 44px;
-    }
-    #btnGo {
-      background: var(--viridian);
-      color: var(--bg);
-      border-color: var(--viridian);
-      font-weight: bold;
-    }
-
     #installPrompt {
       position: fixed;
       top: 56px;
@@ -580,6 +646,7 @@ const state = {
 };
 
 window.__lastVideoRect = null;
+let pendingAttachMsg = null;
 
 let gl = null;
 let glPrograms = {};
@@ -1036,6 +1103,11 @@ async function onStreamDetected(stream) {
       console.log('[aika] Stream cached:', s.type, s.domain, s.source || '');
     }
   });
+
+  if (pendingAttachMsg && state.overlayArmed && aikavid.readyState < 1) {
+    const url = resolveAttachSrc(pendingAttachMsg);
+    if (url) loadAttachSource(url, pendingAttachMsg);
+  }
 }
 
 function armOverlay() {
@@ -1049,7 +1121,7 @@ function disarmOverlay() {
   armedDot.classList.add('hidden');
 }
 
-function suspendOverlay() {
+function suspendOverlay(clearStreams = true) {
   state.playbackActive = false;
   cancelAnimationFrame(state.rafId);
   state.rafId = null;
@@ -1069,7 +1141,10 @@ function suspendOverlay() {
   pauseIndicator.classList.add('hidden');
 
   playbackView.classList.add('hidden');
-  state.streams = [];
+  if (clearStreams) {
+    state.streams = [];
+    pendingAttachMsg = null;
+  }
   window.__lastVideoRect = null;
 }
 
@@ -1087,30 +1162,62 @@ function positionOverlay(rect) {
   playbackView.style.height = height + 'px';
 }
 
-async function attachToVideo(msg) {
+function showAttachChrome(msg) {
   armOverlay();
   state.playbackActive = true;
   window.__lastVideoRect = msg.rect;
+  positionOverlay(msg.rect);
+  playbackView.classList.remove('hidden');
+  tapToPlay.classList.remove('hidden');
+  pauseIndicator.classList.add('hidden');
+  btnPlayPause.textContent = '▶';
+}
 
-  let videoSrc = msg.src;
+function pickBestStreamUrl(msg) {
+  const sorted = [...state.streams].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  const isThumb = msg.rect && msg.rect.width < 500;
+  if (isThumb) {
+    const preview = sorted.find(s =>
+      s.type === 'MP4' && /preview|clip\.mp4|thumbs-/i.test(s.realUrl || '')
+    );
+    if (preview) return preview.proxyUrl;
+  }
+  const hls = sorted.find(s => s.type === 'HLS');
+  const mp4 = sorted.find(s => s.type === 'MP4');
+  return (hls || mp4)?.proxyUrl || null;
+}
 
-  if (videoSrc.startsWith('blob:') || !videoSrc) {
-    const hlsStream = state.streams.find(s => s.type === 'HLS');
-    const mp4Stream = state.streams.find(s => s.type === 'MP4');
-    const cached = hlsStream || mp4Stream;
-    if (cached) {
-      videoSrc = cached.proxyUrl;
-    } else {
-      console.warn('[aika] blob: src and no cached stream URL — waiting');
-      browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
-      state.playbackActive = false;
-      return;
+function resolveAttachSrc(msg) {
+  const src = msg.src || '';
+  if (src.startsWith('blob:')) return src;
+  if (src.startsWith('http')) return '/proxy?url=' + encodeURIComponent(src);
+  if (src) return src;
+  return pickBestStreamUrl(msg);
+}
+
+function loadAttachSource(videoSrc, msg, triedFallback = false) {
+  const onSuccess = () => {
+    pendingAttachMsg = null;
+    browserFrame.contentWindow?.postMessage({ type: 'aika-attach-confirmed' }, '*');
+    updateTimeUI();
+  };
+  const onError = () => {
+    aikavid.removeEventListener('loadedmetadata', onSuccess);
+    aikavid.removeEventListener('error', onError);
+    if (msg.src?.startsWith('blob:') && !triedFallback) {
+      const fallback = pickBestStreamUrl(msg);
+      if (fallback && fallback !== videoSrc) {
+        loadAttachSource(fallback, msg, true);
+        return;
+      }
     }
-  }
+    console.warn('[aika] video load failed — UI stays up, retrying on stream');
+    browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
+    browserFrame.contentWindow?.postMessage({ type: 'aika-attach-failed' }, '*');
+  };
 
-  if (videoSrc.startsWith('http')) {
-    videoSrc = '/proxy?url=' + encodeURIComponent(videoSrc);
-  }
+  aikavid.addEventListener('loadedmetadata', onSuccess, { once: true });
+  aikavid.addEventListener('error', onError, { once: true });
 
   aikavid.src = videoSrc;
   aikavid.muted = true;
@@ -1119,13 +1226,20 @@ async function attachToVideo(msg) {
   volumeSlider.value = '1';
   if (msg.currentTime) aikavid.currentTime = msg.currentTime;
   aikavid.load();
+}
 
-  positionOverlay(msg.rect);
-  playbackView.classList.remove('hidden');
+async function attachToVideo(msg) {
+  pendingAttachMsg = msg;
+  showAttachChrome(msg);
 
-  tapToPlay.classList.remove('hidden');
-  pauseIndicator.classList.add('hidden');
-  btnPlayPause.textContent = '▶';
+  const videoSrc = resolveAttachSrc(msg);
+  if (!videoSrc) {
+    console.warn('[aika] no stream URL yet — waiting for scan');
+    browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
+    return;
+  }
+
+  loadAttachSource(videoSrc, msg);
 }
 
 async function attachToEmbed(msg) {
@@ -1401,6 +1515,19 @@ function updateTimeUI() {
 
 let isSeeking = false;
 
+let lastScrollY = 0;
+let addressBarVisible = true;
+
+function setAddressBarVisible(visible) {
+  if (visible === addressBarVisible) return;
+  addressBarVisible = visible;
+  if (visible) {
+    addressBar.classList.remove('hidden');
+  } else if (!state.overlayArmed) {
+    addressBar.classList.add('hidden');
+  }
+}
+
 btnGo.addEventListener('click', () => navigate(urlInput.value.trim()));
 urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(urlInput.value.trim()); });
 btnBack.addEventListener('click', () => { try { browserFrame.contentWindow?.history.back(); } catch (_) {} });
@@ -1438,6 +1565,10 @@ browserFrame.addEventListener('load', () => {
       browserFrame.contentWindow?.postMessage({ type: 'aika-scan' }, '*');
     }, 1500);
   }
+});
+
+browseView.addEventListener('click', () => {
+  if (!state.overlayArmed) setAddressBarVisible(true);
 });
 
 btnPlayPause.addEventListener('click', () => {
@@ -1568,16 +1699,28 @@ window.addEventListener('message', (e) => {
   if (d.type === 'navigate' && d.url) navigate(d.url);
   if (d.type === 'aika-stream-detected' && d.stream) onStreamDetected(d.stream);
   if (d.type === 'aika-video-attach') {
-    if (state.playbackActive) suspendOverlay();
+    if (state.playbackActive) {
+      browserFrame.contentWindow?.postMessage({ type: 'aika-video-detach' }, '*');
+      suspendOverlay(false);
+    }
     attachToVideo(d);
   }
   if (d.type === 'aika-embed-attach') {
-    if (state.playbackActive) suspendOverlay();
+    if (state.playbackActive) {
+      browserFrame.contentWindow?.postMessage({ type: 'aika-video-detach' }, '*');
+      suspendOverlay(false);
+    }
     attachToEmbed(d);
   }
   if (d.type === 'aika-video-rect') {
     window.__lastVideoRect = d.rect;
     if (state.playbackActive) positionOverlay(d.rect);
+  }
+  if (d.type === 'aika-scroll') {
+    const delta = d.scrollY - lastScrollY;
+    lastScrollY = d.scrollY;
+    if (delta > 30) setAddressBarVisible(false);
+    if (delta < -10) setAddressBarVisible(true);
   }
 });
 
