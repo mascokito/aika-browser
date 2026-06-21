@@ -214,11 +214,16 @@ function buildInjectedScript(pageUrl) {
   }
 
   function isMainPlayer(v) {
+    if (v.__aikaAttached) return false;
+    if (window.__aikaActiveVideo) return false;
     var rect = v.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
-    var style = window.getComputedStyle(v);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    if (parseFloat(style.opacity) === 0) return false;
+    try {
+      var style = window.getComputedStyle(v);
+      if (style.display === 'none') return false;
+      if (style.visibility === 'hidden') return false;
+      if (parseFloat(style.opacity) === 0) return false;
+    } catch (e) {}
     return true;
   }
 
@@ -275,6 +280,13 @@ function buildInjectedScript(pageUrl) {
     e.preventDefault();
     e.stopPropagation();
 
+    if (window.__aikaActiveVideo && window.__aikaActiveVideo !== v) {
+      window.__aikaActiveVideo.style.opacity = '';
+      window.__aikaActiveVideo.style.pointerEvents = '';
+      window.__aikaActiveVideo.__aikaAttached = false;
+      window.__aikaActiveVideo = null;
+      window.parent.postMessage({ type: 'aika-video-detach' }, '*');
+    }
     attachVideo(v, 'tap');
     startRectSync();
   }, true);
@@ -292,15 +304,22 @@ function buildInjectedScript(pageUrl) {
       startRectSync();
     }
 
-    if (v.readyState >= 1) {
-      setTimeout(tryAttach, 300);
-    } else {
-      v.addEventListener('loadedmetadata', function onMeta() {
-        v.removeEventListener('loadedmetadata', onMeta);
-        setTimeout(tryAttach, 300);
-      });
-    }
+    setTimeout(tryAttach, 200);
   }, true);
+
+  (function pollForVideo() {
+    if (window.__aikaActiveVideo) return;
+    var v = document.querySelector('#html5video video, .html5-video-container video, video.vjs-tech');
+    if (v && !v.__aikaAttached && !v.paused) {
+      var rect = v.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        attachVideo(v, 'autoplay');
+        startRectSync();
+        return;
+      }
+    }
+    setTimeout(pollForVideo, 1000);
+  })();
 
   var PLAYER_IFRAME_PATTERNS = [
     'zilla-networks.com',
@@ -310,6 +329,8 @@ function buildInjectedScript(pageUrl) {
     'upstream.to',
     'mixdrop.co',
     'filemoon.sx',
+    'xvideos-embed.com',
+    'youjizz.com',
   ];
 
   function findPlayerIframes() {
@@ -695,6 +716,7 @@ const AGE_GATE_COOKIES = {
   'tube8.com': 'age_verified=1',
   'pornhub.com': 'age_verified=1',
   'jav.guru': 'ageGate=true',
+  'youjizz.com': 'age_verified=1; __age=verified',
 };
 
 function getAgeGateCookies(targetUrl) {
@@ -1241,6 +1263,13 @@ function extractStreamUrls(html, pageUrl) {
   const epornerMatches = html.matchAll(/"file"\s*:\s*"(https?:\/\/[^"]+\.mp4[^"]*)"/gi);
   for (const m of epornerMatches) addStream(m[1].replace(/\\\//g, '/'), 'MP4');
 
+  const dataClipMatches = html.matchAll(/data-clip\s*=\s*["']([^"']+\.mp4[^"']*)["']/gi);
+  for (const m of dataClipMatches) {
+    let url = m[1].replace(/\\\//g, '/');
+    if (url.startsWith('//')) url = `https:${url}`;
+    addStream(url, 'MP4');
+  }
+
   const genericVideoUrl = html.matchAll(
     /"(?:videoUrl|hlsUrl|streamUrl|hls_url|video_url|stream_url)"\s*:\s*"(https?:\/\/[^"]+\.(?:m3u8|mp4)[^"]*)"/gi
   );
@@ -1699,6 +1728,7 @@ const PUPPETEER_VIDEO_DOMAINS = [
   'pornhub.com',
   'spankbang.com',
   'eporner.com',
+  'youjizz.com',
 ];
 
 function requiresPuppeteerForVideo(url) {

@@ -140,6 +140,7 @@ const AGE_GATE_COOKIES = {
   'tube8.com': 'age_verified=1',
   'pornhub.com': 'age_verified=1',
   'jav.guru': 'ageGate=true',
+  'youjizz.com': 'age_verified=1; __age=verified',
 };
 
 function getAgeGateCookies(targetUrl) {

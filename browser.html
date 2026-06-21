@@ -1567,8 +1567,14 @@ window.addEventListener('message', (e) => {
   if (!d || typeof d !== 'object') return;
   if (d.type === 'navigate' && d.url) navigate(d.url);
   if (d.type === 'aika-stream-detected' && d.stream) onStreamDetected(d.stream);
-  if (d.type === 'aika-video-attach') attachToVideo(d);
-  if (d.type === 'aika-embed-attach') attachToEmbed(d);
+  if (d.type === 'aika-video-attach') {
+    if (state.playbackActive) suspendOverlay();
+    attachToVideo(d);
+  }
+  if (d.type === 'aika-embed-attach') {
+    if (state.playbackActive) suspendOverlay();
+    attachToEmbed(d);
+  }
   if (d.type === 'aika-video-rect') {
     window.__lastVideoRect = d.rect;
     if (state.playbackActive) positionOverlay(d.rect);
